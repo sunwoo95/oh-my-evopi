@@ -637,3 +637,48 @@ omp packages/metaharness = 통합 벤치마크 러너 + Harbor 실행 저장소 
   설치 dist + 번들 청크(chunk-DQUBS5H4.js, ▀/▄/█ 이스케이프형)에 존재,
   구 emblem 부재. 라이브 latest.json=v0.9.2 + install.sh 신 로고 HTTP 200.
 - **정리**: 임시 site/gh-pages clone/install prefix/release publish 제거.
+
+## [체크포인트] 2026-09-02 — Databricks serving model provider 추가
+
+트리거: 사용자 지시 — Anthropic 설정(Claude Code 방식: ANTHROPIC_BASE_URL +
+ANTHROPIC_AUTH_TOKEN=Bearer)을 따르되, BASE_URL/AUTH_TOKEN 을 입력받아 Databricks
+에서 모델을 직접 조회 후 연결.
+
+### 설계
+- **provider id `databricks`**, api `anthropic-messages`, baseUrl =
+  `{workspace}/serving-endpoints/anthropic`, 모델 id = serving endpoint 이름.
+- **모델 조회**: `GET {workspace}/api/2.0/serving-endpoints` (Bearer) →
+  이름에 "claude" 포함 endpoint 필터 → 모델 등록.
+- **모델 지속화**: prime private-models 캐시 패턴 준용 — `databricks-models.json`
+  (models.json 옆). models.json 직접 재작성 회피(사용자 주석 보존).
+  models.json 의 databricks 설정이 있으면 그것이 우선(request config 후기 set 승리).
+- **인증**: 토큰은 auth.json(api_key) 저장, request 는 registry providerRequestConfig
+  `authHeader:true` → `Authorization: Bearer` + `x-databricks-use-coding-agent-mode:
+  true` 헤더. /logout 시 모델은 남고 unconfigured (apiKey 없는 config 는
+  hasConfiguredProviderRequestAuth=false — model-registry.ts:1230).
+- **pi-ai 일반 개선**: anthropic provider 기본 분기에서 커스텀 Authorization 헤더
+  존재 시 `apiKey: null` → x-api-key 미전송 (Claude Code ANTHROPIC_AUTH_TOKEN 계약과
+  동일). Authorization 부재 시 기존 x-api-key 경로 그대로(회귀 가드 테스트).
+- **모델 파라미터 휴리스틱**: endpoint 메타에 모델 한계 부재 → 이름 기반:
+  claude-3.x/legacy → reasoning false·maxTokens 8192, 그 외 → true·32000,
+  contextWindow 200k, cost 0(DBU 과금). 표시명 "databricks-claude-sonnet-5"→
+  "Claude Sonnet 5".
+- **UX**: /login 메뉴에 Databricks 상시 노출(모델 조회 전이므로 Serper 패턴 수동
+  추가+중복가드). DATABRICKS_HOST/TOKEN env 는 빈 입력 시 기본값.
+
+### 변경 파일
+- 신규 `src/core/databricks-auth.ts` (정규화/조회/캐시), `test/databricks-auth.test.ts`
+  (11), `packages/ai/test/anthropic-bearer-auth.test.ts` (2).
+- `src/core/model-registry.ts` (loadModels 통합 + storeDatabricksModelCache),
+  `src/modes/interactive/auth-flows.ts` (runDatabricksLogin + 메뉴 + 라우팅),
+  `src/core/provider-display-names.ts` (+databricks),
+  `packages/ai/src/providers/anthropic.ts` (Bearer-only 분기),
+  `docs/providers.md` (Databricks 절).
+
+### 검증
+- tsgo: ai/coding-agent 둘 다 exit 0. 신규 13 테스트 pass. 회귀 배치
+  (auth-flows/auth-storage/model-registry/oauth-selector/login-dialog/
+  model-resolver + ai anthropic 4파일) 209 pass / 5 skip / 0 fail. 빌드 exit 0.
+- **미검증(정직 기록)**: 실 Databricks workspace 대상 e2e (토큰 없음). REST 응답
+  포맷·인증 계약은 fake fetch/SDK mock 으로 검증. 실 연결 검증은 사용자 토큰
+  보유 환경에서 /login → Databricks 로 수행 필요.

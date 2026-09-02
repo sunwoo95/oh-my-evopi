@@ -609,3 +609,11 @@ M10 회귀 점검에서 촉발. 설정경로 하드제약(CLAUDE.md "코드에 .
 오버레이·main+gh-pages push. 격리 prefix `curl|sh` 실검증: checksum OK, 194 pkgs,
 `--version`=0.9.2, 신 로고가 설치 dist+번들 청크에 존재(구 emblem 부재), 라이브
 latest.json=v0.9.2. 상세는 DECISIONS.md [배포완료 갱신].
+
+## [체크포인트] 2026-09-02 — Databricks serving model provider (未커밋)
+
+/login 에 Databricks 추가: BASE_URL+AUTH_TOKEN 입력 → serving-endpoints API 로
+Claude endpoint 직접 조회 → 모델 등록(databricks-models.json 캐시). 인증은
+Claude Code 계약(Authorization: Bearer, x-api-key 미전송, coding-agent-mode 헤더).
+신규 13 + 회귀 209 pass, tsgo/빌드 clean. 실 workspace e2e 는 토큰 부재로 미검증.
+상세 docs/design/DECISIONS.md 동일 체크포인트. git 커밋은 지시 대기.

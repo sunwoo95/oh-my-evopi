@@ -29,6 +29,14 @@ import type { Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { getAgentDir } from "../config.js";
 import type { AuthSourceToken, AuthStatus, AuthStorage } from "./auth-storage.js";
+import {
+	DATABRICKS_DEFAULT_HEADERS,
+	DATABRICKS_PROVIDER_ID,
+	type DatabricksModelCache,
+	databricksModelsFromCache,
+	loadDatabricksModelCache,
+	saveDatabricksModelCache,
+} from "./databricks-auth.js";
 import { PRIME_INFERENCE_PROVIDER_ID } from "./prime-inference-auth.js";
 import {
 	fetchAuthorizedPrivatePrimeInferenceModelIds,
@@ -445,6 +453,8 @@ export class ModelRegistry {
 	private explicitPrivatePrimeInferenceModelIds = new Set<string>();
 	private openAICodexModelsCache: { authFingerprint: string; modelIds: Set<string>; refreshedAt: number } | undefined;
 	private backgroundPrivatePrimeAuthorization: { fingerprint: string; promise: Promise<void> } | undefined;
+	/** Databricks serving endpoints fetched at login; also persisted next to models.json. */
+	private databricksModelCache: DatabricksModelCache | undefined;
 	private loadError: string | undefined = undefined;
 
 	/** Re-register dynamic OAuth providers (e.g. user MCP servers) after refresh() resets the registry. */
@@ -511,6 +521,9 @@ export class ModelRegistry {
 	}
 
 	private loadModels(): void {
+		// Databricks first: models.json runs after and may override the request
+		// config (later storeProviderRequestConfig wins), keeping user config authoritative.
+		const databricksModels = this.loadDatabricksModels();
 		const {
 			models: customModels,
 			overrides,
@@ -525,7 +538,11 @@ export class ModelRegistry {
 		this.explicitPrivatePrimeInferenceModelIds = new Set(
 			customModels.filter(isPrivatePrimeInferenceModel).map((model) => model.id),
 		);
-		const builtInModels = [...this.loadBuiltInModels(overrides, modelOverrides), ...getPrivatePrimeInferenceModels()];
+		const builtInModels = [
+			...this.loadBuiltInModels(overrides, modelOverrides),
+			...getPrivatePrimeInferenceModels(),
+			...databricksModels,
+		];
 		let combined = this.mergeCustomModels(builtInModels, customModels);
 
 		for (const oauthProvider of this.authStorage.getOAuthProviders()) {
@@ -892,6 +909,35 @@ export class ModelRegistry {
 			return undefined;
 		}
 		return join(dirname(this.modelsJsonPath), PRIVATE_PRIME_AUTHORIZATION_CACHE_FILE);
+	}
+
+	/**
+	 * Persist the Databricks model list fetched at login and make it live.
+	 * Callers should refresh() afterwards (completeProviderAuthentication does).
+	 */
+	storeDatabricksModelCache(cache: DatabricksModelCache): void {
+		this.databricksModelCache = cache;
+		if (this.modelsJsonPath) {
+			saveDatabricksModelCache(dirname(this.modelsJsonPath), cache);
+		}
+	}
+
+	/** Load Databricks serving-endpoint models (login cache) and their request auth config. */
+	private loadDatabricksModels(): Model<Api>[] {
+		const cache =
+			this.databricksModelCache ??
+			(this.modelsJsonPath ? loadDatabricksModelCache(dirname(this.modelsJsonPath)) : undefined);
+		if (!cache || cache.models.length === 0) {
+			return [];
+		}
+		this.databricksModelCache = cache;
+		// Databricks authenticates with `Authorization: Bearer <token>` (the same
+		// contract Claude Code uses via ANTHROPIC_AUTH_TOKEN), not x-api-key.
+		this.storeProviderRequestConfig(DATABRICKS_PROVIDER_ID, {
+			authHeader: true,
+			headers: DATABRICKS_DEFAULT_HEADERS,
+		});
+		return databricksModelsFromCache(cache);
 	}
 
 	private readPrivatePrimeAuthorizationCache(): PrivatePrimeAuthorizationCache | undefined {

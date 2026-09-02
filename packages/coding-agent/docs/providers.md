@@ -231,6 +231,29 @@ export GOOGLE_CLOUD_LOCATION=us-central1
 
 Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file.
 
+### Databricks
+
+Connects to Claude models served from a Databricks workspace via the
+Anthropic-compatible serving endpoint (`/serving-endpoints/anthropic`),
+authenticating with `Authorization: Bearer <token>` — the same contract Claude
+Code uses through `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`.
+
+Run `/login`, pick **Databricks**, and enter:
+
+1. **Base URL** — the workspace URL (`https://<workspace>.cloud.databricks.com`).
+   Pasting a full serving-endpoints URL also works; it is normalized.
+2. **Auth token** — a personal access token (`dapi...`).
+
+The login queries the workspace's serving-endpoints API
+(`/api/2.0/serving-endpoints`), registers every Claude endpoint it finds as a
+model (e.g. `databricks-claude-sonnet-5`), and caches the list in
+`databricks-models.json` next to `models.json`. Re-run `/login` → Databricks to
+refresh the endpoint list. Requests include the
+`x-databricks-use-coding-agent-mode: true` header.
+
+If `DATABRICKS_HOST` / `DATABRICKS_TOKEN` are exported (the Databricks CLI
+convention), pressing Enter on an empty prompt accepts them as defaults.
+
 ## Custom Providers
 
 **Via models.json:** Add Ollama, LM Studio, vLLM, or any provider that speaks a supported API (OpenAI Completions, OpenAI Responses, Anthropic Messages, Google Generative AI). See [models.md](models.md).

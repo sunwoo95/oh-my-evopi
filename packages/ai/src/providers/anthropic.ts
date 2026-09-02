@@ -925,8 +925,18 @@ function createClient(
 		return { client, isOAuthToken: true };
 	}
 
+	// A custom `Authorization` header (e.g. Databricks serving endpoints, or any
+	// provider configured with authHeader/bearer auth) replaces x-api-key entirely
+	// — the same contract Claude Code applies for ANTHROPIC_AUTH_TOKEN.
+	const hasCustomAuthorization = Boolean(
+		optionsHeaders?.Authorization ??
+			optionsHeaders?.authorization ??
+			model.headers?.Authorization ??
+			model.headers?.authorization,
+	);
+
 	const client = new Anthropic({
-		apiKey,
+		apiKey: hasCustomAuthorization ? null : apiKey,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
 		defaultHeaders: mergeHeaders(

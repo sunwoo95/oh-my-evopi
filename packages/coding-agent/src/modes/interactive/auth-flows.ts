@@ -2,6 +2,13 @@ import * as path from "node:path";
 import { getProviders, type OAuthProviderId, type OAuthSelectPrompt } from "@evopi/pi-ai";
 import type { OverlayHandle, TUI } from "@evopi/pi-tui";
 import { getAuthPath, getDocsPath } from "../../config.js";
+import {
+	buildDatabricksModelCache,
+	DATABRICKS_PROVIDER_ID,
+	DATABRICKS_PROVIDER_NAME,
+	fetchDatabricksClaudeEndpoints,
+	normalizeDatabricksWorkspaceUrl,
+} from "../../core/databricks-auth.js";
 import type { ModelRegistry } from "../../core/model-registry.js";
 import {
 	checkPrimeAgentTracesAccess,
@@ -181,6 +188,9 @@ export class ProviderAuthFlows {
 		if (providerOption.id === BEDROCK_PROVIDER_ID) {
 			return this.showBedrockSetupDialog(providerOption.id, providerOption.name);
 		}
+		if (providerOption.id === DATABRICKS_PROVIDER_ID) {
+			return this.runDatabricksLogin();
+		}
 		return this.showApiKeyLoginDialog(providerOption.id, providerOption.name, kind);
 	}
 
@@ -252,6 +262,16 @@ export class ProviderAuthFlows {
 			options.push({
 				id: providerId,
 				name: this.host.modelRegistry.getProviderDisplayName(providerId),
+				authType: "api_key",
+			});
+		}
+
+		// Databricks models are discovered at login (serving-endpoints API), so the
+		// provider must be offered before any of its models exist in the registry.
+		if (!options.some((option) => option.id === DATABRICKS_PROVIDER_ID)) {
+			options.push({
+				id: DATABRICKS_PROVIDER_ID,
+				name: DATABRICKS_PROVIDER_NAME,
 				authType: "api_key",
 			});
 		}
@@ -726,6 +746,91 @@ export class ProviderAuthFlows {
 			return { status: "cancelled" };
 		} finally {
 			dialog.signal.removeEventListener("abort", onDialogAbort);
+		}
+	}
+
+	/**
+	 * Databricks login: BASE_URL + AUTH_TOKEN (Claude Code's ANTHROPIC_BASE_URL /
+	 * ANTHROPIC_AUTH_TOKEN contract), then discover Claude serving endpoints
+	 * directly from the workspace and register them as models.
+	 */
+	async runDatabricksLogin(): Promise<AuthenticationResult> {
+		const dialog = new LoginDialogComponent(
+			this.host.ui,
+			DATABRICKS_PROVIDER_ID,
+			(_success, _message) => {},
+			DATABRICKS_PROVIDER_NAME,
+		);
+
+		const handle = showFullPaneOverlay(this.host.ui, dialog, 88);
+		const closeDialog = () => {
+			handle.hide();
+			this.host.ui.requestRender();
+		};
+
+		try {
+			// DATABRICKS_HOST / DATABRICKS_TOKEN (the Databricks CLI convention) act
+			// as defaults: an empty prompt entry accepts them.
+			const envHost = process.env.DATABRICKS_HOST?.trim();
+			const rawUrl =
+				(
+					await dialog.showPrompt(
+						"Enter Databricks base URL (workspace or serving-endpoints URL):",
+						envHost || "https://<workspace>.cloud.databricks.com",
+					)
+				).trim() ||
+				envHost ||
+				"";
+			const workspace = normalizeDatabricksWorkspaceUrl(rawUrl);
+
+			const envToken = process.env.DATABRICKS_TOKEN?.trim();
+			const token =
+				(
+					await dialog.showPrompt(
+						"Enter Databricks auth token:",
+						envToken ? "press Enter to use $DATABRICKS_TOKEN" : "dapi...",
+					)
+				).trim() ||
+				envToken ||
+				"";
+			if (!token) {
+				throw new Error("Auth token cannot be empty.");
+			}
+
+			dialog.showProgress("Fetching Claude serving endpoints from Databricks...");
+			const endpoints = await fetchDatabricksClaudeEndpoints(workspace.workspaceUrl, token, {
+				signal: dialog.signal,
+			});
+			if (dialog.signal.aborted) {
+				closeDialog();
+				return { status: "cancelled" };
+			}
+			if (endpoints.length === 0) {
+				throw new Error(
+					`No Claude serving endpoints found at ${workspace.workspaceUrl}. ` +
+						"Create an Anthropic model serving endpoint in Databricks, then retry.",
+				);
+			}
+
+			this.host.modelRegistry.authStorage.set(DATABRICKS_PROVIDER_ID, { type: "api_key", key: token });
+			this.host.modelRegistry.storeDatabricksModelCache(buildDatabricksModelCache(workspace, endpoints));
+
+			closeDialog();
+			const endpointSummary = `Found ${endpoints.length} Claude serving endpoint${endpoints.length === 1 ? "" : "s"} at ${workspace.workspaceUrl}`;
+			return await this.completeProviderAuthentication(
+				DATABRICKS_PROVIDER_ID,
+				DATABRICKS_PROVIDER_NAME,
+				"api_key",
+				endpointSummary,
+			);
+		} catch (error: unknown) {
+			closeDialog();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (!dialog.signal.aborted && errorMsg !== "Login cancelled") {
+				this.host.showError(`Failed to login to ${DATABRICKS_PROVIDER_NAME}: ${errorMsg}`);
+				return { status: "failed" };
+			}
+			return { status: "cancelled" };
 		}
 	}
 
