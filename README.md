@@ -56,7 +56,7 @@ evopi combines a persistent Python control environment with durable harness stat
 Install the latest stable release on macOS or Linux:
 
 ```bash
-curl -fsSL https://app.primeintellect.ai/evopi/install.sh | sh
+curl -fsSL https://sunwoo95.github.io/oh-my-evopi/install.sh | sh
 ```
 
 The installer downloads a versioned release, verifies its SHA-256 checksum, installs the `evopi` command, and can prepare the Python runtime used by the agent.

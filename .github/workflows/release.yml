@@ -1,0 +1,143 @@
+name: Release
+
+# Builds the evopi release, packs the npm tarballs with GitHub Pages tarball
+# URLs baked into their internal @evopi/* dependencies, and publishes the static
+# install tree (install.sh + channel pointer + releases/v<version>/*) to the
+# gh-pages branch. GitHub Pages then serves the curl one-liner installer.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.9.1)"
+        required: true
+      channel:
+        description: "Release channel"
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
+
+concurrency:
+  group: release-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # Public base URL served by GitHub Pages. Must match the gh-pages tree layout
+  # (<base>/install.sh, <base>/<channel>, <base>/releases/v<version>/*).
+  EVOPI_DOWNLOAD_BASE_URL: https://sunwoo95.github.io/oh-my-evopi
+
+jobs:
+  publish:
+    name: Build and publish to GitHub Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev ripgrep
+
+      - name: Resolve version and channel
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+            channel="${{ github.event.inputs.channel }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+            channel="stable"
+          fi
+          version="${version#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "Publishing evopi v${version} (${channel})"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack release
+        run: |
+          test -n "$EVOPI_DOWNLOAD_BASE_URL"
+          npm run release:pack -- \
+            --channel "${{ steps.meta.outputs.channel }}" \
+            --version "${{ steps.meta.outputs.version }}" \
+            --base-url "$EVOPI_DOWNLOAD_BASE_URL" \
+            --out-dir packages/coding-agent/release/publish
+
+      - name: Assemble Pages tree
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          channel="${{ steps.meta.outputs.channel }}"
+          artifacts="packages/coding-agent/release/publish/artifacts"
+          site="$RUNNER_TEMP/site"
+          rm -rf "$site"
+          mkdir -p "$site/releases/v${version}"
+
+          # Versioned release assets (tarballs + checksums + manifest).
+          cp "$artifacts"/*.tgz "$site/releases/v${version}/"
+          cp "$artifacts/SHA256SUMS" "$site/releases/v${version}/"
+          cp "$artifacts"/*.json "$site/releases/v${version}/"
+
+          # Root-level channel pointer + manifest consumed by install.sh / self-update.
+          cp "$artifacts/${channel}" "$site/${channel}"
+          if [ -f "$artifacts/latest.json" ]; then cp "$artifacts/latest.json" "$site/latest.json"; fi
+          if [ -f "$artifacts/beta.json" ]; then cp "$artifacts/beta.json" "$site/beta.json"; fi
+
+          # Template the installer: replace the contiguous sentinels with the real
+          # base URL and default channel. The split guard sentinels stay intact.
+          sed -e "s#__EVOPI_DOWNLOAD_BASE_URL__#${EVOPI_DOWNLOAD_BASE_URL}#g" \
+              -e "s#__EVOPI_DEFAULT_RELEASE_CHANNEL__#stable#g" \
+              install.sh > "$site/install.sh"
+
+          # Disable Jekyll so files are served verbatim.
+          touch "$site/.nojekyll"
+
+          echo "SITE_DIR=$site" >> "$GITHUB_ENV"
+
+      - name: Publish to gh-pages
+        run: |
+          set -euo pipefail
+          site="$SITE_DIR"
+          work="$RUNNER_TEMP/gh-pages"
+          rm -rf "$work"
+          git clone --branch gh-pages --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work" \
+            || { git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work" \
+                 && git -C "$work" checkout --orphan gh-pages && git -C "$work" rm -rf . ; }
+
+          # Overlay the new release; prior release versions are preserved.
+          cp -a "$site"/. "$work"/
+          cd "$work"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+          else
+            git commit -m "Publish evopi v${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.channel }})"
+            git push origin gh-pages
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

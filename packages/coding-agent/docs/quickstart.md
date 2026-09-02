@@ -7,13 +7,13 @@ This page gets you from install to a useful first evopi session.
 Install the latest stable release on Linux or macOS:
 
 ```bash
-curl -fsSL https://app.primeintellect.ai/evopi/install.sh | sh
+curl -fsSL https://sunwoo95.github.io/oh-my-evopi/install.sh | sh
 ```
 
 To try the latest beta built from `main`:
 
 ```bash
-curl -fsSL https://app.primeintellect.ai/evopi/install.sh | sh -s -- beta
+curl -fsSL https://sunwoo95.github.io/oh-my-evopi/install.sh | sh -s -- beta
 ```
 
 Both commands fetch versioned evopi release artifacts and install the `evopi` command. The inherited npm workspace identifiers in the source tree are not the public install path.

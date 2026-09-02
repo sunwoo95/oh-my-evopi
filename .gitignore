@@ -53,3 +53,6 @@ node_modules/
 __pycache__/
 *.pyc
 .env
+
+# Release artifacts (built by scripts/pack-evopi-release.mjs, published to GitHub Pages)
+packages/coding-agent/release/

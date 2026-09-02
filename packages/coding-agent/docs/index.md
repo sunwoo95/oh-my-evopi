@@ -7,7 +7,7 @@ evopi is an RLM-native coding and research harness built around a persistent Pyt
 Install the latest stable release on Linux or macOS:
 
 ```bash
-curl -fsSL https://app.primeintellect.ai/evopi/install.sh | sh
+curl -fsSL https://sunwoo95.github.io/oh-my-evopi/install.sh | sh
 ```
 
 Then run it in a project directory:
