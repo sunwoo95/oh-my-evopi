@@ -1,23 +1,43 @@
-# GOAL: oh-my-evopi
+# GOAL: oh-my-evopi (v2 — 2026-09-02 감사 반영)
+
+> 개정 이력: v1(착수 시점, RUNBOOK v4 §5-1) → **v2** — 초기 목표 정합성 감사
+> (docs/design/AUDIT-initial-goal.md) 결과 반영: 논문 기반 확정(D8), 모델 커넥팅
+> 요구의 3단 상태 정본화, 감사 추적 절 신설.
 
 ## 최종 목표
 prime-agent 를 골격으로 oh-my-pi(omp) 의 TypeScript 자산을 선별 이식하고,
-Evo-Harness 논문(arXiv 2608.15071) 의 델타를 적용한 코딩 어시스턴트 CLI `evopi`.
-(논문 주석: 초기 구상의 arXiv 2608.05446(EvoHarness-RL, RL 학습 기반)은 frozen-solver
-CLI 조건에서 이식 불가 → 자매 논문 2608.15071(skill compilation, 무학습)로 확정.
-경위·판정: docs/design/AUDIT-initial-goal.md §C1, DECISIONS [감사 판정].)
+Evo-Harness 논문(arXiv **2608.15071**, 확정 — D8) 의 델타를 적용한 코딩 어시스턴트
+CLI `evopi`. 초기 구상의 arXiv 2608.05446(EvoHarness-RL)은 본체가 SFT+GRPO **학습**
+이라 frozen-solver CLI 조건에서 이식 불가 판정 — 무학습 이식 가능 개념 3종
+(Belief/Progress/Experience 뷰, harness annealing, cost-aware 주입)은 v2 백로그
+(cost-aware 주입은 B3/M17 로 선반영). 경위·판정: AUDIT §C1, DECISIONS D8.
 
-## 고정 제품 요구사항 (변경 불가)
+## 고정 제품 요구사항 (v2 정본)
 - 설치: curl 원라이너 (prime install.sh 45KB, omp curl -fsSL https://omp.sh/install 참고)
 - 실행 커맨드: `evopi`
 - 설정/상태 경로: `~/.evopi` 단일화 (.omp, .prime 잔존 0건)
 - 랜딩 ASCII 아트: 양쪽 참고, 직관적이면서 독창적으로 새로 디자인
-- 모델 커넥팅: omp + prime 방식 **합집합**
-  omp 측: auth-gateway, auth-broker, auth-storage, auth-retry, dialect, registry,
-          usage, provider-details, oneshot-retry
-  prime 측: models.generated(카탈로그), oauth, bedrock-provider, openrouter-reasoning,
-           env-api-keys, mcp, cache-pricing
+- 모델 커넥팅: omp + prime 방식 **합집합** — 감사 후 3단 상태로 정본화:
+  - **이식+배선 완료 (prime 측 전부)**: models.generated(카탈로그), oauth,
+    bedrock-provider, openrouter-reasoning, env-api-keys, mcp, cache-pricing
+  - **이식 완료 + 배선 (수정 계획 B1·B2, M15-M16)**: omp dialect(11방언 in-band 툴콜),
+    omp auth-storage(풀)+auth-retry(=auth-pool)
+  - **v2 이연 [자동확정]**: auth-gateway, auth-broker (Bun.serve 사이드카 — Phase 3),
+    usage, provider-details, registry 선언 패턴 (감사 P3 소급 판정 — prime 측
+    cache-pricing/models.generated 가 부분 커버)
+  - **이식 후보 (수정 계획 B4, M18)**: oneshot-retry (235줄, Bun 0건)
 - 평가: 코딩 트랙 A/B (metaharness 기반). **ALFWorld 는 범위에서 제외.**
+
+## 감사 추적 (2026-09-02)
+초기 목표 정합성 감사: **docs/design/AUDIT-initial-goal.md** (판정: C3 RLM·C4 python
+직접 검증 PASS / C2 pi 생태계 구조 PASS·실효 PARTIAL / C1 논문 15071 확정).
+
+| 갭 | 내용 | 계획 | 상태 |
+|---|---|---|---|
+| GAP-1 | 논문 05446→15071 무기록 전환 | P1a(소급 확정)·P1b(무학습 개념 백로그) | P1a 완료, P1b=B5 |
+| GAP-2 | 휴면 백포트 3종(dialect·auth-pool·mnemopi) | P2a=B1(M15)·P2b=B2(M16)·P2c=B3(M17) | 계획 승인 |
+| GAP-3 | 고정 요구 4종 무판정 탈락 | P3(소급 판정)·B4(oneshot-retry, M18) | P3 완료, B4 계획 승인 |
+| GAP-4 | 실 A/B 평가 SKIP(키 부재) | P4=B6(실행 조건 문서화, 실행은 키 확보 시) | 계획 승인 |
 
 ## 참조 소스
 1. REPO-A: /opt/workspace/local/sw4kim/my-agent/oh-my-pi      ← TS 자산 공급원 (읽기 전용)

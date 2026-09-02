@@ -1,7 +1,9 @@
 # DECISIONS — oh-my-evopi
 
-> 갱신: 2026-09-02 (STEP 5 초기화 + R5 판정). 원본 정책: ../../../RUNBOOK.md
+> 갱신: 2026-09-02 (**감사 반영 v2** — AUDIT-initial-goal.md 판정 정본화: D8 신설,
+> 등급표 배선 상태 열, R8-R10 신설, v2 백로그 절). 원본 정책: ../../../RUNBOOK.md
 > **이번 구현 사이클에서 git 작업(init/commit/tag)은 사용자 지시로 제외** — 체크포인트는 REVIEW.md 기록으로 대체.
+> (이후 git 커밋/푸시는 사용자 지시로 재개됨 — 2026-09-02 배포 사이클부터.)
 
 ## 확정 결정 (재론 금지)
 
@@ -12,16 +14,17 @@
 | D4 | 권한 모델 | 2계층 분리 (의도=allowlist, 집행=OS 레이어. 최종 판정자는 집행 계층) |
 | D5 | 컨텍스트 압축 | 요약 기반 (prime compaction 기반, snapcompact는 v2) |
 | D7 | evo 레이어 | optional. evo off로 전 기능 동작 (A/B 대조군) |
+| D8 | 논문 기반 | **arXiv 2608.15071 (EVO-HARNESS, skill compilation) 확정** — 초기 구상 2608.05446(EvoHarness-RL)은 SFT+GRPO 학습이 본체라 frozen-solver CLI 에서 이식 불가(AUDIT §C1). 무학습 개념 3종은 v2 백로그(아래 절) |
 
-## 이식 등급표
+## 이식 등급표 (+ 배선 상태 — 2026-09-02 감사 정본화)
 
-| 등급 | 패키지 | 처리 |
-|---|---|---|
-| **A: 즉시 이식** | `ai` (auth-gateway/broker/storage/retry, dialect, registry, usage, provider-details), `metaharness` | pi-natives 의존 0건. ⚠ R7(Bun) 게이트 선행 |
-| **B: 알고리즘 재구현** | `mnemopi` — `mmrRerankIndices`, `cosineSimilarityPairs`, `vectorIndexTopK` | 순수 계산 3함수를 TS로 — ⚠ R6: prebuilt natives 채택 시 재구현 불필요 |
-| **C: npm 대체** | `hashline` — `diffLineRuns`, `enclosingBlockBoundaries`, `nodeChainAt` | diff + tree-sitter npm 바인딩 — ⚠ R6 동일 |
-| **D: v2 이연** | `snapcompact`(PNG 렌더), `tui`(PTY/sixel) | TUI는 prime tui 사용 |
-| **E: v2 optional** | `pi-shell`, `pi-iso`, `crates/*` | prebuilt 바이너리 |
+| 등급 | 패키지 | 처리 | 배선 상태 |
+|---|---|---|---|
+| **A: 즉시 이식** | `ai` (auth-gateway/broker/storage/retry, dialect, registry, usage, provider-details), `metaharness` | pi-natives 의존 0건. ⚠ R7(Bun) 게이트 선행 | dialect=**이식·휴면→B1(M15) 배선**, auth-storage(풀)+retry=auth-pool **이식·휴면→B2(M16) 배선**, metaharness=eval/ 격리 배선 완료, broker/gateway·usage·provider-details·registry=**v2 이연 [자동확정]**, oneshot-retry=**B4(M18) 이식** |
+| **B: 알고리즘 재구현** | `mnemopi` — `mmrRerankIndices`, `cosineSimilarityPairs`, `vectorIndexTopK` | R6 채택으로 natives 직행 + TS 폴백 | **이식·휴면→B3(M17) 배선** (harness 주입 선택기) |
+| **C: npm 대체** | `hashline` — `diffLineRuns`, `enclosingBlockBoundaries`, `nodeChainAt` | R6 채택으로 natives 직행 | **배선 완료** (`hashline_edit` 선택 툴, M6) |
+| **D: v2 이연** | `snapcompact`(PNG 렌더), `tui`(PTY/sixel) | TUI는 prime tui 사용 | — |
+| **E: v2 optional** | `pi-shell`, `pi-iso`, `crates/*` | prebuilt 바이너리 | — |
 
 ## RECONFIRM 상태 원장
 
@@ -35,6 +38,17 @@
 | ~~**R5**~~ | uv x86_64 휠 가용성 | **해소 [자동확정] — 아래 판정 기록** |
 | ~~**R6**~~ | prebuilt pi-natives 채택 | **채택 [자동확정] — 아래 판정 기록** (node 로더 심 1개 필요) |
 | ~~**R7**~~ | omp 자산 Bun 의존 처리 | **판정 완료 [자동확정] (M12) — 제품=node 전용, metaharness=bun 격리 확정. 아래 판정 기록** |
+| **R8** | dialect 소비 배선 (owned-mode) | **착수 확정 — B1(M15)**. 활성=models.json `dialect` 필드+`EVOPI_DIALECT`, 주입점=sdk.ts streamFn, off 시 바이트 동일 게이트 |
+| **R9** | auth-pool 소비 배선 (스트림 로테이션) | **착수 확정 — B2(M16)**. 풀 소스=`EVOPI_API_KEY_POOL_<PROVIDER>` env, `withAuthStream`(buffer-until-replay-unsafe), env 부재 시 무랩핑 |
+| **R10** | mnemopi 소비 배선 (harness 선택기) | **착수 확정 — B3(M17)**. MMR+jaccard+토큰 예산, 게이트=`evo.enabled` 또는 `harness.selection:"mmr"`, 기본 무변경 |
+
+## v2 백로그 — 05446 무학습 개념 (D8 부속, AUDIT P1b)
+
+| # | 개념 | 구현 방향 (전부 evo-off 무영향 확장/스킬 레이어) |
+|---|---|---|
+| ① | Belief/Progress/Experience 하네스 뷰 | prime HarnessEntry 4종{prompt,memory,skill,subagent} 위 태깅 계층: memory→Belief/Experience 분류, goal/progress 연동 |
+| ② | harness annealing | refinements.jsonl 이력 기반 미사용·노후 엔트리 주기적 통합·감쇠 |
+| ③ | cost-aware 주입 | 시스템 프롬프트 주입 엔트리 토큰 예산 상한 — **B3(M17)로 선반영** |
 
 ## RECONFIRM 처리 규칙 (GOAL 모드)
 - 트리거 도달 시 STOP 하지 않는다. RUNBOOK 「GOAL 모드 실행 규칙」의
