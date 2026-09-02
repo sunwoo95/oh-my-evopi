@@ -1,0 +1,32 @@
+{
+  "name": "@evopi/eval",
+  "private": true,
+  "type": "module",
+  "description": "evopi eval harness — isolated bun copy of omp metaharness + typescript-edit-benchmark (M12). Runs under bun only; the node product graph is separate. See docs/design/DECISIONS.md M12.",
+  "workspaces": {
+    "packages": [
+      "metaharness",
+      "typescript-edit-benchmark"
+    ],
+    "catalog": {
+      "@oh-my-pi/hashline": "18.1.2",
+      "@oh-my-pi/pi-agent-core": "18.1.2",
+      "@oh-my-pi/pi-ai": "18.1.2",
+      "@oh-my-pi/pi-catalog": "18.1.2",
+      "@oh-my-pi/pi-coding-agent": "18.1.2",
+      "@oh-my-pi/pi-utils": "18.1.2",
+      "diff": "^9.0.0",
+      "@oh-my-pi/pi-natives": "18.1.2",
+      "@types/bun": "^1.3.14",
+      "@babel/generator": "^7.29.7",
+      "@babel/parser": "^7.29.7",
+      "@babel/traverse": "^7.29.7",
+      "@babel/types": "^7.29.7",
+      "prettier": "^3.9.5",
+      "regexp-tree": "^0.1.27",
+      "@oh-my-pi/pi-tui": "18.1.2",
+      "@types/babel__generator": "^7.27.0",
+      "@types/babel__traverse": "^7.28.0"
+    }
+  }
+}

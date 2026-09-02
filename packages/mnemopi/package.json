@@ -1,0 +1,28 @@
+{
+	"type": "module",
+	"name": "@evopi/mnemopi",
+	"version": "0.9.1",
+	"description": "mnemopi memory kernels (MMR rerank, exact vector index, cosine clustering). Node-only backport wired to @evopi/pi-natives-loader.",
+	"license": "MIT",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsgo -p tsconfig.build.json",
+		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@evopi/pi-natives-loader": "^0.9.1"
+	},
+	"keywords": ["memory", "vector", "mmr", "embeddings", "agent", "llm"],
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"files": ["dist", "README.md"],
+	"devDependencies": {
+		"@types/node": "^24.3.0",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

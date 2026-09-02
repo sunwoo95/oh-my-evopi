@@ -1,0 +1,17 @@
+telemetry = false
+
+[install]
+# Sandbox copy (M12): disable the 3-day minimum-release-age gate the omp root
+# uses, so a fresh isolated install here is not blocked on recent publishes.
+minimumReleaseAge = 0
+linker = "hoisted"
+exact = true
+saveTextLockfile = true
+
+[loader]
+".md" = "text"
+".py" = "text"
+".lark" = "text"
+
+[run]
+bun = true

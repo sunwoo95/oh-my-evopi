@@ -1,0 +1,67 @@
+digraph omp_harness {
+  rankdir=LR;
+  graph [fontname="Noto Sans CJK KR", fontsize=13, labelloc=t,
+         label="oh-my-pi (omp) 하네스 구조 — v18.1.2", compound=true, nodesep=0.35, ranksep=0.55];
+  node  [fontname="Noto Sans CJK KR", shape=box, fontsize=11, margin="0.12,0.06"];
+  edge  [fontname="Noto Sans CJK KR", fontsize=10];
+
+  subgraph cluster_input {
+    label="입력 (5 진입점)"; style=filled; fillcolor="#eef4ff";
+    omp_entry [label="TUI / print(-p) / RPC / ACP / SDK\ncli.ts → main.ts → sdk.ts\ncreateAgentSession()"];
+  }
+
+  subgraph cluster_loop {
+    label="에이전트 루프 — packages/agent"; style=filled; fillcolor="#fff7e6";
+    omp_loop [label="agentLoop() · Agent 클래스\nagent-loop.ts(3,010) / agent.ts\n동시성 스케줄링 · TTSR 스트림 규칙"];
+    omp_compact [label="compaction/\n스트리밍 압축 v2 · shake\n(+ snapcompact 비트맵, v2)"];
+  }
+
+  subgraph cluster_tools {
+    label="툴 레이어 — coding-agent/src/tools (31종)"; style=filled; fillcolor="#eefbea";
+    omp_tools [label="read(16 URL스킴) · edit(hashline)\nast_grep · grep · glob · task\nretain/recall/reflect(mnemopi)"];
+  }
+
+  subgraph cluster_exec {
+    label="코드실행 엔진"; style=filled; fillcolor="#fdeeee";
+    omp_exec [label="bash (pi-shell in-process)\neval (영속 Python/JS 커널)\n워커 셀렉터 __omp_worker_*"];
+  }
+
+  subgraph cluster_model {
+    label="모델 커넥터 — packages/ai + catalog"; style=filled; fillcolor="#f3eefd";
+    omp_ai [label="streamSimple() — 전송 ~14종\n레지스트리 ~80 · dialect(오픈모델)\nauth-storage(SQLite 로테이션) · auth-retry"];
+    omp_catalog [label="pi-catalog\nmodels.json(12MB, ~4,700모델)\nKDL compat 규칙"];
+  }
+
+  subgraph cluster_state {
+    label="상태·설정 저장소"; style=filled; fillcolor="#f5f5f5";
+    omp_state [label="~/.omp/agent/{agent.db, logs}\n.omp/{commands,skills,tools}\nsessions JSONL 트리 (session-manager.ts)"];
+  }
+
+  subgraph cluster_evo {
+    label="harness(evo) — 메모리 중심"; style=filled; fillcolor="#e8f8f5";
+    omp_memory [label="pi-mnemopi (SQLite 메모리)\nmmr/shmr/vector-index → pi-natives\n스킬 .omp/skills (순수 md)\n※ refine 루프 없음"];
+  }
+
+  subgraph cluster_eval {
+    label="평가 — packages/metaharness"; style=filled; fillcolor="#fff0f6";
+    omp_eval [label="benchmarks.ts kind: harbor/edit/snapcompact\nexperiments.ts arm(job-name 접두사)\n⚠ Bun 런타임 전제"];
+  }
+
+  subgraph cluster_native {
+    label="Rust 네이티브 — crates/* → packages/natives"; style=dashed;
+    omp_native [label="pi-natives (N-API .node)\ngrep·glob·PTY·AST(tree-sitter 55)\npi-shell·pi-builtins·pi-iso\n★ prebuilt npm leaf 공개 (R6 채택)"];
+  }
+
+  omp_entry -> omp_loop;
+  omp_loop -> omp_tools [label="tool call"];
+  omp_loop -> omp_compact;
+  omp_tools -> omp_exec;
+  omp_loop -> omp_ai [label="stream"];
+  omp_ai -> omp_catalog;
+  omp_loop -> omp_state [label="JSONL append"];
+  omp_tools -> omp_memory;
+  omp_tools -> omp_native [style=dashed, label="N-API"];
+  omp_exec -> omp_native [style=dashed];
+  omp_memory -> omp_native [style=dashed, label="3함수"];
+  omp_eval -> omp_entry [style=dotted, label="RPC 구동"];
+}

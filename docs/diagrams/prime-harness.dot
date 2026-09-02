@@ -1,0 +1,65 @@
+digraph prime_harness {
+  rankdir=LR;
+  graph [fontname="Noto Sans CJK KR", fontsize=13, labelloc=t,
+         label="prime-agent 하네스 구조 — v0.9.1", compound=true, nodesep=0.35, ranksep=0.55];
+  node  [fontname="Noto Sans CJK KR", shape=box, fontsize=11, margin="0.12,0.06"];
+  edge  [fontname="Noto Sans CJK KR", fontsize=10];
+
+  subgraph cluster_input {
+    label="입력 (클라이언트/데몬 분리)"; style=filled; fillcolor="#eef4ff";
+    pr_entry [label="TUI / print / RPC / ACP / SDK\ncli.ts → cli-main.ts → main.ts"];
+    pr_daemon [label="데몬 슈퍼바이저 + 세션 워커\nAgentConnection 경계 (≈14k줄)\n※ evopi v1: 동결(수정 금지)"];
+  }
+
+  subgraph cluster_loop {
+    label="에이전트 루프 — packages/agent (5파일)"; style=filled; fillcolor="#fff7e6";
+    pr_loop [label="agentLoop() · Agent 클래스\nsteering / follow-up / continuation 큐\ntransformContext(컴팩션 지점)"];
+    pr_session [label="AgentSession (~12k줄)\nagent-session.ts — 심장부\n프롬프트 큐 · host_request 디스패치"];
+  }
+
+  subgraph cluster_tools {
+    label="툴 레이어 — 단일 툴 철학"; style=filled; fillcolor="#eefbea";
+    pr_tools [label="ipython (유일한 내장 LLM 툴)\ntools/ipython.ts\nbash.ts/edit.ts는 --tools 게이트"];
+  }
+
+  subgraph cluster_exec {
+    label="코드실행 엔진 — core/kernel + rlm"; style=filled; fillcolor="#fdeeee";
+    pr_kernel [label="bootstrap.ts(916) uv 부트스트랩\nrepl-manager.ts(1502) REPL 수명주기\nstate-snapshot(47) dill 스냅샷\nboot-gate(34) · shared(330)"];
+    pr_rlm [label="python -m rlm.repl (프로토콜 v3)\nrepl.py(1,166) · bash · skill · mcp\nrlm() 서브에이전트 · host_request"];
+  }
+
+  subgraph cluster_model {
+    label="모델 커넥터 — packages/ai"; style=filled; fillcolor="#f3eefd";
+    pr_ai [label="stream()/streamSimple() — Api 9종\nmodels.generated.ts(~22k줄)\nOAuth 3종 · bedrock · faux(무키 테스트)"];
+  }
+
+  subgraph cluster_state {
+    label="상태·설정 저장소 — ~/.prime/agent"; style=filled; fillcolor="#f5f5f5";
+    pr_state [label="settings/auth/models.json\nsessions/<id>.jsonl (트리)\nsession-artifacts/<id>/kernel-state.dill\nkernel-venv/ (uv 관리)"];
+  }
+
+  subgraph cluster_evo {
+    label="harness(evo) — continual harness"; style=filled; fillcolor="#e8f8f5";
+    pr_harness [label="rlm.harness 상태 원장\nharness_state.json (세션/전역)\nrefinement.ts · /refine · autoRefine\nHarnessEntry 4종 · refinements.jsonl"];
+  }
+
+  subgraph cluster_eval {
+    label="평가"; style=filled; fillcolor="#fff0f6";
+    pr_eval [label="자체 통합 러너 없음\n(scripts/ 벤치 단편)\n→ evopi는 omp metaharness 차용"];
+  }
+
+  pr_entry -> pr_daemon [label="로컬 데몬 프로토콜 v4"];
+  pr_daemon -> pr_session;
+  pr_session -> pr_loop;
+  pr_loop -> pr_tools [label="tool call"];
+  pr_tools -> pr_kernel [label="execute"];
+  pr_kernel -> pr_rlm [label="JSON-lines stdio"];
+  pr_rlm -> pr_session [label="host_request\n(권위=TS)", dir=both];
+  pr_loop -> pr_ai [label="stream"];
+  pr_session -> pr_state [label="JSONL append"];
+  pr_kernel -> pr_state [label="dill 저장·복원"];
+  pr_rlm -> pr_harness [label="rlm.harness"];
+  pr_session -> pr_harness;
+  pr_harness -> pr_session [xlabel="시스템 프롬프트 주입", style=dashed];
+  pr_eval -> pr_entry [style=dotted];
+}

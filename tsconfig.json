@@ -1,0 +1,25 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"paths": {
+			"*": ["./*"],
+			"@evopi/pi-ai": ["./packages/ai/src/index.ts"],
+			"@evopi/pi-ai/oauth": ["./packages/ai/src/oauth.ts"],
+			"@evopi/pi-ai/*": ["./packages/ai/src/*.ts", "./packages/ai/src/providers/*.ts"],
+			"@evopi/pi-ai/dist/*": ["./packages/ai/src/*"],
+			"@evopi/pi-agent-core": ["./packages/agent/src/index.ts"],
+			"@evopi/pi-agent-core/*": ["./packages/agent/src/*"],
+			"@evopi/pi-coding-agent": ["./packages/coding-agent/src/index.ts"],
+			"@evopi/pi-coding-agent/hooks": ["./packages/coding-agent/src/core/hooks/index.ts"],
+			"@evopi/pi-coding-agent/*": ["./packages/coding-agent/src/*"],
+			"typebox": ["./node_modules/typebox"],
+			"@evopi/pi-tui": ["./packages/tui/src/index.ts"],
+			"@evopi/pi-tui/*": ["./packages/tui/src/*"],
+			"@evopi/pi-agent-old": ["./packages/agent-old/src/index.ts"],
+			"@evopi/pi-agent-old/*": ["./packages/agent-old/src/*"]
+		}
+	},
+	"include": ["packages/*/src/**/*", "packages/*/test/**/*", "packages/coding-agent/examples/**/*"],
+	"exclude": ["**/dist/**"]
+}
