@@ -60,14 +60,23 @@ describe("OAuthSelectorComponent", () => {
 		]);
 	});
 
-	it("sorts Prime Inference first within every login auth-state group", () => {
-		const cases: Array<{ status: AuthStatus; configuredProviderLeads: boolean }> = [
-			{ status: { configured: true, source: "environment" }, configuredProviderLeads: false },
-			{ status: { configured: false, source: "stale", label: "expired" }, configuredProviderLeads: true },
-			{ status: { configured: false }, configuredProviderLeads: true },
+	it("does not privilege Prime Inference in login ordering", () => {
+		// Prime Inference is a peer provider: within an auth-state rank group it sorts
+		// by compareAuthSelectorProviders (OAuth before api_key, then alphabetical by
+		// name) — never pinned to the top. So "Anthropic" always precedes it.
+		const cases: Array<{ status: AuthStatus; expected: string[] }> = [
+			// All three configured -> one rank group, alphabetical by name.
+			{ status: { configured: true, source: "environment" }, expected: ["Anthropic", "OpenAI", "Prime Inference"] },
+			// Only OpenAI configured; the others stale -> OpenAI leads, then alphabetical.
+			{
+				status: { configured: false, source: "stale", label: "expired" },
+				expected: ["OpenAI", "Anthropic", "Prime Inference"],
+			},
+			// Only OpenAI configured; the others unconfigured -> OpenAI leads, then alphabetical.
+			{ status: { configured: false }, expected: ["OpenAI", "Anthropic", "Prime Inference"] },
 		];
 
-		for (const { status, configuredProviderLeads } of cases) {
+		for (const { status, expected } of cases) {
 			const selector = new OAuthSelectorComponent(
 				"login",
 				AuthStorage.inMemory(),
@@ -83,15 +92,10 @@ describe("OAuthSelectorComponent", () => {
 			);
 
 			const output = stripAnsi(selector.render(120).join("\n"));
-			const primeIndex = output.indexOf("Prime Inference");
-			const anthropicIndex = output.indexOf("Anthropic");
-			const openAiIndex = output.indexOf("OpenAI");
-
-			expect(primeIndex).toBeLessThan(anthropicIndex);
-			if (configuredProviderLeads) {
-				expect(openAiIndex).toBeLessThan(primeIndex);
-			} else {
-				expect(primeIndex).toBeLessThan(openAiIndex);
+			const indices = expected.map((name) => output.indexOf(name));
+			for (let i = 1; i < indices.length; i += 1) {
+				expect(indices[i - 1]).toBeGreaterThanOrEqual(0);
+				expect(indices[i - 1]).toBeLessThan(indices[i]);
 			}
 		}
 	});
@@ -242,12 +246,14 @@ describe("OAuthSelectorComponent", () => {
 			},
 		});
 		authStorage.markAuthStale("prime-inference");
+		// Note: amazon-bedrock is intentionally NOT used as the "unconfigured" fixture
+		// because ambient AWS credentials (e.g. AWS_BEARER_TOKEN_BEDROCK) can make it
+		// configured. GitHub Copilot (oauth, no ambient creds) is a reliable one.
 		const selector = new OAuthSelectorComponent(
 			"login",
 			authStorage,
 			[
 				{ id: "github-copilot", name: "GitHub Copilot", authType: "oauth" },
-				{ id: "amazon-bedrock", name: "Amazon Bedrock", authType: "api_key" },
 				{ id: "prime-inference", name: "Prime Inference", authType: "api_key" },
 				{ id: "openai", name: "OpenAI", authType: "api_key" },
 			],
@@ -257,9 +263,10 @@ describe("OAuthSelectorComponent", () => {
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 
+		// Rank order (no provider privileged): configured (OpenAI) < stale (Prime) <
+		// unconfigured (GitHub Copilot).
 		expect(output.indexOf("OpenAI")).toBeLessThan(output.indexOf("Prime Inference"));
 		expect(output.indexOf("Prime Inference")).toBeLessThan(output.indexOf("GitHub Copilot"));
-		expect(output.indexOf("Prime Inference")).toBeLessThan(output.indexOf("Amazon Bedrock"));
 		expect(output).toContain("expired");
 	});
 

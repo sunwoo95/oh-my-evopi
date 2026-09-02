@@ -593,3 +593,13 @@ M10 회귀 점검에서 촉발. 설정경로 하드제약(CLAUDE.md "코드에 .
   서빙 자산 10종 전부 HTTP 200. **public curl 원라이너 end-to-end 동작 확정.**
 - **정리**: 로컬 리허설 서버(pid 552697)·`/tmp/evopi-serve`·임시 트리·worktree 제거.
   origin: main `73546cd`, gh-pages `f8a8f8f`.
+
+## [체크포인트] 2026-09-02 — Prime 종속 해소 + 랜딩 로고 EVO 강조 (未배포)
+
+- **Prime 종속 해소(DEMOTE)**: 온보딩 강제 Prime 로그인 제거→provider 메뉴(`/login`
+  동일), oauth-selector 상단고정 제거, model-resolver Prime-first 분기 제거. prime-
+  inference 는 peer provider 로 존치(sanctioned interop 3곳 불변). src 5 + test 3.
+- **랜딩 로고**: 추상 엠블럼→풀블록 "EVO" 워드마크(+chevron/baseline). evopi-logo.ts +
+  install.sh evopi_logo_line() 바이트 동기(스크립트 생성). 10행 maxW25(≤32).
+- **검증**: tsgo exit 0. affected 65/65 pass. 상세·근거는 DECISIONS.md 동일 체크포인트.
+- **미결**: git 미커밋(정책), gh-pages 재게시 未실행(인가 대기) — 라이브 배너 구 로고.

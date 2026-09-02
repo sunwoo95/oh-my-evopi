@@ -8,7 +8,6 @@ import {
 	TruncatedText,
 } from "@evopi/pi-tui";
 import type { AuthStatus, AuthStorage } from "../../../core/auth-storage.js";
-import { PRIME_INFERENCE_PROVIDER_ID } from "../../../core/prime-inference-auth.js";
 import { theme } from "../theme/theme.js";
 import {
 	getMenuListLayout,
@@ -199,10 +198,8 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 			if (rankDelta !== 0) {
 				return rankDelta;
 			}
-			if (this.mode === "login" && a.id !== b.id) {
-				if (a.id === PRIME_INFERENCE_PROVIDER_ID) return -1;
-				if (b.id === PRIME_INFERENCE_PROVIDER_ID) return 1;
-			}
+			// No provider is privileged: configured providers rank first (via
+			// getProviderSortRank), then OAuth before API-key, then alphabetical.
 			return compareAuthSelectorProviders(a, b);
 		});
 	}

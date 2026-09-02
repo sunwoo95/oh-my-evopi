@@ -566,3 +566,57 @@ omp packages/metaharness = 통합 벤치마크 러너 + Harbor 실행 저장소 
   (chmod 0o444/0o222/0o500 무시로 미쓰기/EACCES 경로 미발동), oauth-selector 정렬 1건
   = 선존(외부 "Prime Inference" 텍스트, 파일 미편집). kernel-bootstrap 21/21 pass
   (EVOPI_KERNEL_VENV/PYTHON 검증). npm run build exit 0.
+
+## [체크포인트] 2026-09-02 — Prime 종속 해소(온보딩/로그인/기본모델) + 랜딩 로고 EVO 강조
+
+트리거: 사용자 지시 "prime intellect에 종속되지 않고 omp/opencode처럼 자유로운 형태"
++ "온보딩시 prime 종속 부분·관련 구현 점검·수정"(GOAL) + "랜딩 아스키아트 evo 강조 변형".
+
+### 정책 판정 — DEMOTE(강등) not DELETE(삭제)
+- prime-inference 는 **다수 provider 중 하나의 peer** 로 유지. 강제/기본/상단고정 금지.
+  근거: sanctioned interop 3곳(prime-inference-auth.ts:90, ai/env-api-keys.ts:209,
+  ai/scripts/generate-models.ts:384)은 개명·삭제 금지 예외(F3). 사용자가 실제로 Prime
+  모델을 선택할 때만 활성화되는 코드(onboarding.ts prime-cli 스플래시 게이트,
+  prime-inference-model-selection, agent-traces)는 결정지점 강제성이 없어 존치.
+
+### 적용 변경 (src 5)
+- `interactive-mode.ts` runOnboardingFlow: 강제 Prime 로그인 제거 → 미구성 시
+  `showConfigurationMenu("providers")`(=`/login` 동일 표면) 호출. preselect 없음.
+- `oauth-selector.ts` sortProviders: Prime 상단고정 블록 제거 + import 제거. 순위는
+  getProviderSortRank(configured0/stale1/unconfig2) → compareAuthSelectorProviders
+  (oauth<api_key, then name.localeCompare). 특권 provider 없음.
+- `model-resolver.ts` findPreferredDefaultModel: Prime-first 분기 제거. registry 순서
+  (defaultModelPerProvider: amazon-bedrock→anthropic→openai→…→prime-inference[idx5])대로
+  첫 configured provider 기본모델 선택. PRIME_INFERENCE_DEFAULT_MODEL_ID(z-ai/glm-5.2)
+  상수는 catalog 용도로 존치(line 26 사용).
+- `prime-onboarding-splash.ts`: continueActionLabel 기본값
+  "login with Prime Intellect"→"connect a provider". 브랜드라인 "Welcome to evopi" 유지.
+
+### 테스트 갱신 (3) — 전부 pass
+- oauth-selector.test.ts: "sorts Prime first…"→"does not privilege Prime Inference in
+  login ordering"(기대 [Anthropic,OpenAI,Prime Inference]); stale-vs-unconfigured 는
+  amazon-bedrock 픽스처 제거(ambient AWS_BEARER_TOKEN_BEDROCK 로 configured 판정되는
+  env-fragile) → github-copilot(oauth, 무-ambient) 로 교체, OpenAI<Prime<Copilot 검증.
+- model-resolver.test.ts: Prime-first 기대 → anthropicModel(claude-opus-4-7, registry상
+  prime 선행) 기대로 변경, 근거 주석.
+- prime-onboarding-splash.test.ts: "connect a provider" 문구 반영, 테스트명
+  "invokes the continue action on confirm".
+
+### 랜딩 로고 (Phase 3)
+- `evopi-logo.ts` EVOPI_LOGO: 추상 chevron 엠블럼 → **풀블록 "EVO" 워드마크**(rows5-9)
+  + 상승 chevron 악센트(rows2-3, evolve 모션) + iteration baseline(row11). 10행, maxW=25
+  (≤32 제약 충족). 단일폭 글리프(▄ █ ▀)만.
+- `install.sh` evopi_logo_line() rows2-11 바이트 동기(빈 행 4·10 은 `: ;;`). 스크립트로
+  두 파일 동시 생성해 정렬오차 배제.
+- 스플래시/로그인 테스트는 EVOPI_LOGO 를 동적 참조(`.split("\n")[0].trim()`)라 내용
+  변경 무영향. 65/65 pass.
+
+### 검증
+- tsgo -p tsconfig.build.json exit 0. affected 4파일 65/65 pass
+  (prime-onboarding-splash, oauth-selector, model-resolver, login-dialog).
+
+### 미결(사용자 인가 대기)
+- gh-pages 재게시: 새 로고를 반영한 install.sh 재배포는 push 필요 → 이번 사이클 git
+  commit/push 제외 정책(CLAUDE.md)에 따라 **미실행**. 라이브 `curl|sh` 배너는 재배포
+  전까지 구 로고. 인가 시 pack-evopi-release + gh-pages 오버레이로 갱신.
+- src/test 변경 9파일 未커밋(정책상 유지). 체크포인트만 기록.

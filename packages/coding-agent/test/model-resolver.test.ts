@@ -347,7 +347,7 @@ describe("default model selection", () => {
 		expect(result.thinkingLevel).toBe("medium");
 	});
 
-	test("findInitialModel prefers GLM 5.2 when Prime Inference is configured", async () => {
+	test("findInitialModel picks the first configured provider's default without privileging Prime Inference", async () => {
 		const anthropicModel: Model<"anthropic-messages"> = {
 			...mockModels[0],
 			id: "claude-opus-4-7",
@@ -375,7 +375,9 @@ describe("default model selection", () => {
 			modelRegistry: registry,
 		});
 
-		expect(result.model).toBe(primeModel);
+		// anthropic precedes prime-inference in defaultModelPerProvider order, and its
+		// default id (claude-opus-4-7) matches, so it wins. No provider is privileged.
+		expect(result.model).toBe(anthropicModel);
 	});
 
 	test("findInitialModel uses another provider default when Prime Inference is not configured", async () => {

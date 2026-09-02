@@ -1834,21 +1834,10 @@ export class InteractiveMode {
 			return;
 		}
 
-		const splash = await this.showOnboardingSplash();
-		if (!splash) {
-			return;
-		}
-
-		splash.showProgress("Signing in to Prime Intellect...");
-		const authResult = await this.createAuthFlows().runPrimeInferenceLogin();
-		if (authResult.status !== "success") {
-			splash.dismiss();
-			return;
-		}
-
-		splash.showProgress("Preparing models...");
-		await this.prepareForModelSelectionAfterLogin(authResult);
-		await this.showOnboardingModelSelection(splash);
+		// No provider is configured yet. Present the full provider menu — the same
+		// surface as `/login` — so the user can connect any subscription or API-key
+		// provider. No provider is forced or preselected; provider-agnostic by design.
+		await this.showConfigurationMenu("providers");
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
