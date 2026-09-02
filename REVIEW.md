@@ -564,3 +564,32 @@ M10 회귀 점검에서 촉발. 설정경로 하드제약(CLAUDE.md "코드에 .
   install.sh | sh` 는 게시된 릴리스(R2 + 호스팅)가 있어야 동작 — 이번 사이클은
   git/게시 제외이므로 미게시. 로컬 등가 명령으로 F1(격리)·F2(bin evopi)·설치 전경로
   실증. 부트스트랩 스킵/포함 분기 중 비-tty 는 "preparing the Python runtime" 분기 선택.
+
+## [체크포인트] 2026-09-02 — GitHub Pages 실 배포 + public curl 원라이너 검증
+
+사용자 지시로 git/배포 착수(호스팅=GitHub Pages, 즉시배포+CI, 직접 진행).
+
+- **호스팅**: base URL `https://sunwoo95.github.io/oh-my-evopi`, gh-pages 브랜치 root
+  서빙. Pages API 활성화(source `{branch:gh-pages, path:/}`), 첫 빌드 ~3분 후 라이브.
+- **패키징**: `pack-evopi-release.mjs --base-url <Pages> --version 0.9.1`. 6개 타르볼의
+  내부 `@evopi/*` 의존성 전부 Pages 타르볼 URL 로 재작성 확인
+  (`evopi-0.9.1.tgz` 의 hashline/pi-agent-core/pi-ai/pi-tui, `evopi-hashline` 의
+  pi-natives-loader). SHA256SUMS·latest.json·stable(`v0.9.1`) 생성.
+- **install.sh 게시본**: 연속형 센티널만 치환 — `evopi_base_url` 기본값→Pages URL,
+  `evopi_default_release_channel`→stable. 분리형 가드 센티널
+  (`"__EVOPI_DOWNLOAD_BASE""_URL__"`)은 그대로 유지되어 unconfigured 가드 정상.
+- **self-update 일관성**: `version-check.ts:3` 기본 base URL 을 R2→Pages 로 변경 후
+  coding-agent 재빌드(dist/bundle/chunk-IUHWPTPJ.js 에 Pages URL 반영, 구 R2 제거),
+  재패키징·재게시. `evopi update` 가 설치처와 동일 호스트 `latest.json` 조회.
+- **레포 정리**: `packages/coding-agent/release/`(241파일 ~11.8MB) git 트래킹 제거 +
+  .gitignore. README/docs(index·quickstart) install URL → Pages URL.
+- **CI**: `.github/workflows/release.yml` 추가 — tag `v*.*.*` push/수동 dispatch 시
+  build→pack(Pages URL)→install.sh 템플릿→gh-pages 오버레이 게시(구 버전 보존).
+- **실 검증(핵심)**: 격리 prefix(`NPM_CONFIG_PREFIX`)에서
+  `curl -fsSL https://sunwoo95.github.io/oh-my-evopi/install.sh | sh` 실행 →
+  체크섬 `evopi-0.9.1.tgz: OK`, `added 194 packages in 16s`,
+  `evopi was installed successfully`, exit 0. `evopi --version`=0.9.1,
+  bin→`dist/bundle/cli.js`, self-update URL=Pages, `configDir=.evopi/agent`(F3).
+  서빙 자산 10종 전부 HTTP 200. **public curl 원라이너 end-to-end 동작 확정.**
+- **정리**: 로컬 리허설 서버(pid 552697)·`/tmp/evopi-serve`·임시 트리·worktree 제거.
+  origin: main `73546cd`, gh-pages `f8a8f8f`.
