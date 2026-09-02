@@ -603,3 +603,9 @@ M10 회귀 점검에서 촉발. 설정경로 하드제약(CLAUDE.md "코드에 .
   install.sh evopi_logo_line() 바이트 동기(스크립트 생성). 10행 maxW25(≤32).
 - **검증**: tsgo exit 0. affected 65/65 pass. 상세·근거는 DECISIONS.md 동일 체크포인트.
 - **미결**: git 미커밋(정책), gh-pages 재게시 未실행(인가 대기) — 라이브 배너 구 로고.
+
+### [배포완료] 2026-09-02 — 위 "미결" 해소: v0.9.2 게시
+사용자 "진행" 인가 → 0.9.2 범프(v0.9.1 in-place 덮어쓰기 회피)·빌드·팩·gh-pages
+오버레이·main+gh-pages push. 격리 prefix `curl|sh` 실검증: checksum OK, 194 pkgs,
+`--version`=0.9.2, 신 로고가 설치 dist+번들 청크에 존재(구 emblem 부재), 라이브
+latest.json=v0.9.2. 상세는 DECISIONS.md [배포완료 갱신].

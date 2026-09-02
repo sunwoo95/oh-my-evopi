@@ -620,3 +620,20 @@ omp packages/metaharness = 통합 벤치마크 러너 + Harbor 실행 저장소 
   commit/push 제외 정책(CLAUDE.md)에 따라 **미실행**. 라이브 `curl|sh` 배너는 재배포
   전까지 구 로고. 인가 시 pack-evopi-release + gh-pages 오버레이로 갱신.
 - src/test 변경 9파일 未커밋(정책상 유지). 체크포인트만 기록.
+
+### [배포완료 갱신] 2026-09-02 — v0.9.2 게시 (위 "미결" 해소)
+사용자 인가 "진행" 수신 → 커밋·배포 실행.
+- **버전 정책**: v0.9.1 in-place 덮어쓰기 대신 **0.9.2 범프**(불변성 보존). 로고는
+  install.sh 배너 + 타르볼 TUI 스플래시 양쪽에 존재하므로 타르볼 재빌드 필요 →
+  범프가 정도(正道). `npm version 0.9.2 -ws` + sync-versions(7 내부 dep 범위 갱신),
+  무-reinstall(pack 은 --version 으로 tarball dep URL 계산, node_modules 무관).
+- **빌드/팩**: npm run build exit 0(신 로고 dist 반영, 구 emblem 제거 확인). pack
+  --version 0.9.2 → 6 타르볼, 내부 @evopi/* 전부 Pages v0.9.2 URL 재작성 확인.
+- **게시**: gh-pages 오버레이(v0.9.1 보존 + v0.9.2 추가), install.sh 재템플릿(연속형
+  센티널만, 가드 유지), stable→v0.9.2, latest.json 갱신. push `f8a8f8f..8d4519c`.
+  main push `574c8d2`(src+범프; models.generated.ts 는 빌드시 카탈로그 리프레시 동반).
+- **실검증(격리 prefix)**: `curl … install.sh | sh` → `evopi-0.9.2.tgz: OK`,
+  194 packages, exit 0, `evopi --version`=0.9.2, bin→dist/bundle/cli.js. 신 로고가
+  설치 dist + 번들 청크(chunk-DQUBS5H4.js, ▀/▄/█ 이스케이프형)에 존재,
+  구 emblem 부재. 라이브 latest.json=v0.9.2 + install.sh 신 로고 HTTP 200.
+- **정리**: 임시 site/gh-pages clone/install prefix/release publish 제거.
