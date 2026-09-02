@@ -625,3 +625,11 @@ Claude Code 계약(Authorization: Bearer, x-api-key 미전송, coding-agent-mode
 PARTIAL / C1(논문) 15071≠05446 불일치(대체 채택은 합리, 경위 무기록→소급 확정).
 GAP 4건 + 수정 계획 P1-P4 작성. P1a(논문 방침)·P3(무판정 4종) 소급 확정 즉시 실행.
 상세: docs/design/AUDIT-initial-goal.md, DECISIONS [감사 판정].
+
+### [배포완료] 2026-09-02 — v0.9.3 게시 + README 재배포
+Databricks provider(1cb2cd7)+범프(2bc3afb) → gh-pages v0.9.3 게시(de874d5). 이후
+README 재작성(루트+패키지, 감사 반영, 11c27c5) → v0.9.3 **재팩·in-place 재게시**
+(ec5bf49 — 동일 세션 단일 릴리스 사이클 내 README-only 수정이라 범프 대신 갱신;
+main tarball+SHA256SUMS+latest.json만 변경, 서브패키지 tarball 불변). 실검증:
+라이브 sha 일치, 격리 prefix curl|sh → checksum OK·194 pkgs·0.9.3·설치 README
+잔재 0·databricks dist 존재. main push 완료(11c27c5).
