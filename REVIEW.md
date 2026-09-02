@@ -617,3 +617,11 @@ Claude endpoint 직접 조회 → 모델 등록(databricks-models.json 캐시). 
 Claude Code 계약(Authorization: Bearer, x-api-key 미전송, coding-agent-mode 헤더).
 신규 13 + 회귀 209 pass, tsgo/빌드 clean. 실 workspace e2e 는 토큰 부재로 미검증.
 상세 docs/design/DECISIONS.md 동일 체크포인트. git 커밋은 지시 대기.
+
+## [체크포인트] 2026-09-02 — 초기 목표 정합성 감사 (AUDIT-initial-goal.md)
+
+사용자 /goal 지시로 초기 의도(oh-my-pi 기반 + RLM 하네스 + 논문 개념) 대비 전 과정
+점검. 판정: C3(RLM)·C4(python 직접 검증) PASS / C2(pi 생태계) 구조 PASS·실효
+PARTIAL / C1(논문) 15071≠05446 불일치(대체 채택은 합리, 경위 무기록→소급 확정).
+GAP 4건 + 수정 계획 P1-P4 작성. P1a(논문 방침)·P3(무판정 4종) 소급 확정 즉시 실행.
+상세: docs/design/AUDIT-initial-goal.md, DECISIONS [감사 판정].

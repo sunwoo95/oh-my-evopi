@@ -3,6 +3,9 @@
 ## 최종 목표
 prime-agent 를 골격으로 oh-my-pi(omp) 의 TypeScript 자산을 선별 이식하고,
 Evo-Harness 논문(arXiv 2608.15071) 의 델타를 적용한 코딩 어시스턴트 CLI `evopi`.
+(논문 주석: 초기 구상의 arXiv 2608.05446(EvoHarness-RL, RL 학습 기반)은 frozen-solver
+CLI 조건에서 이식 불가 → 자매 논문 2608.15071(skill compilation, 무학습)로 확정.
+경위·판정: docs/design/AUDIT-initial-goal.md §C1, DECISIONS [감사 판정].)
 
 ## 고정 제품 요구사항 (변경 불가)
 - 설치: curl 원라이너 (prime install.sh 45KB, omp curl -fsSL https://omp.sh/install 참고)

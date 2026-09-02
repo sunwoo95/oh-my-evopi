@@ -682,3 +682,41 @@ ANTHROPIC_AUTH_TOKEN=Bearer)을 따르되, BASE_URL/AUTH_TOKEN 을 입력받아 
 - **미검증(정직 기록)**: 실 Databricks workspace 대상 e2e (토큰 없음). REST 응답
   포맷·인증 계약은 fake fetch/SDK mock 으로 검증. 실 연결 검증은 사용자 토큰
   보유 환경에서 /login → Databricks 로 수행 필요.
+
+## [Phase 시작] 2026-09-02 — 초기 목표 정합성 감사 (GOAL: 초기 의도 대비 점검)
+
+- **트리거**: 사용자 /goal — "oh-my-pi 기반 + prime-agent RLM Harness + arXiv
+  2608.05446v1 개념의 pi agent 하네스 CLI"라는 초기 목표 대비 GOAL→DECISIONS 전
+  과정 점검. base 가 pi→prime 으로 바뀐 것은 인지: 원 의도 = **pi 생태계 유지** +
+  prime 의 **RLM 하네스·python interpreter 직접 검증** 포함이 제대로 됐는지 검증,
+  수정 가능하면 방향성 계획 작성.
+- **적용 정책**: 판정은 메인 컨텍스트가 수행(서브에이전트는 근거만). 근거는
+  파일경로:라인. 산출물 = docs/design/AUDIT-initial-goal.md (판정표 + 갭 + 수정
+  방향 계획). 점검 결과를 README 에도 반영 후 커밋·재배포(사용자 지시).
+- **선행 실측**: arXiv 2608.05446 = "EvoHarness-RL: Learning Self-Evolving Runtime
+  Harness for Long-Horizon LLM Agents" (SFT+GRPO 로 하네스 운용 정책 학습, ALFWorld
+  평가) — 레포가 실제 채택한 2608.15071 "EVO-HARNESS: Context-to-Harness Skill
+  Compilation for Self-Evolving Agents" (frozen solver, one-shot, 학습 없음)와
+  **상이한 자매 논문**(공저자 Tianxin Wei 중복). 판정 쟁점으로 등재.
+
+### [감사 판정] 초기 목표 정합성 감사 완료 + P1a/P3 소급 확정 (2026-09-02)
+
+산출물: **docs/design/AUDIT-initial-goal.md** (기준 4종 판정표 + GAP 4건 + 수정 방향
+계획 P1-P4). 요지: C3 RLM 하네스·C4 python 직접 검증 = PASS, C2 pi 생태계 = 구조
+PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판정 4종), C1 논문 =
+15071 채택(사용자 의도 05446 과 상이, 경위 무기록).
+
+- **[소급 확정 — P1a] 논문 기반 = arXiv 2608.15071 (EVO-HARNESS, skill compilation)**.
+  사유: ① evopi 는 frozen solver(파라미터 고정 상용 모델) CLI — 05446(EvoHarness-RL)의
+  본체인 SFT+GRPO 하네스 정책 학습은 구조적으로 이식 불가. ② 05446 평가 환경
+  ALFWorld 는 GOAL.md:17 이 명시 제외. ③ 15071 의 frozen-solver·one-shot 전제가 제품
+  조건과 정합. 05446 의 무학습 이식 가능 개념 3종(Belief/Progress/Experience 뷰,
+  harness annealing, cost-aware 주입)은 **v2 evo 델타 백로그**로 등재(AUDIT P1b).
+- **[자동확정 — P3] GOAL.md:14-15 "모델 커넥팅 합집합" 잔여 4종 처리**:
+  `oneshot-retry` = **v1.x 이식 후보 1순위**(소형, Bun 경미 — 착수 시 M-phase 기록).
+  `usage`·`provider-details`·`registry 선언 패턴` = **v2 이연** [자동확정] — 근거:
+  Phase 3 [자동확정](DECISIONS:146-149)의 "v1 한정" 원칙과 동일 계열이나 당시 명시
+  누락분을 본 감사로 소급 기록. prime 측 대응물(cache-pricing=usage 일부,
+  models.generated=카탈로그)이 기능 공백을 부분 커버.
+- 휴면 백포트 3종의 배선(P2a dialect → P2b auth-pool → P2c mnemopi)과 실 A/B(P4)는
+  **사용자 승인 대기 제안**으로 AUDIT 문서에 상세 기재(주입점 파일:라인 포함).
