@@ -1,6 +1,6 @@
 {
 	"name": "@evopi/pi-natives-loader",
-	"version": "0.9.2",
+	"version": "0.9.3",
 	"description": "Node-only loader for prebuilt pi-natives: direct leaf .node require, AVX2 variant selection, null fallback",
 	"type": "module",
 	"main": "./dist/index.js",
