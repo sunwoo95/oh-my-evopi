@@ -38,3 +38,15 @@ export {
 	withAuth,
 } from "./retry.js";
 export { CredentialPool, type CredentialPoolOptions, createPoolResolver, fnv1a32 } from "./pool.js";
+export {
+	classifyOneshotFailure,
+	extractRetryHintFromText,
+	getHeadersFromError,
+	getRetryAfterMsFromHeaders,
+	type HeadersLike,
+	isTransientStatus,
+	type OneshotFailureKind,
+	type OneshotRetryInfo,
+	type OneshotRetryOptions,
+	retryTransientCompletion,
+} from "./oneshot-retry.js";

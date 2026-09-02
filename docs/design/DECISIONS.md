@@ -734,3 +734,19 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   models.generated=카탈로그)이 기능 공백을 부분 커버.
 - 휴면 백포트 3종의 배선(P2a dialect → P2b auth-pool → P2c mnemopi)과 실 A/B(P4)는
   **사용자 승인 대기 제안**으로 AUDIT 문서에 상세 기재(주입점 파일:라인 포함).
+
+### M18 완료 — oneshot-retry 이식 + grounded-refine 소비 (2026-09-02, B4)
+
+- **트리거**: 수정 계획 B4 (GOAL v2 이식 후보 1순위, AUDIT P3).
+- omp `ai/src/oneshot-retry.ts`(235줄, Bun 0건) → `auth-pool/oneshot-retry.ts` 자족
+  이식. compat 축약(도달 가능 동작만, M8/M9 선례): ① AIError 비트플래그(flags.ts
+  865줄) → `classifyOneshotFailure` 축약(HTTP status 구동 + context-overflow 증거
+  패턴 목록은 verbatim 이식 + content-blocked/transient 마커 축약, errorId→kind
+  라벨) ② `extractRetryHint` 는 본문 패턴만 도달(source=undefined 호출) →
+  `extractRetryHintFromText` ③ retry-after 헤더 헬퍼 near-verbatim ④ evopi
+  AssistantMessage 에 errorStatus 부재 → 메시지 텍스트에서 status 복원 ⑤
+  Promise.withResolvers → 수동 리졸버.
+- **소비 1곳**: grounded-refine 플래너 completeSimple 을 retryTransientCompletion
+  래핑 — transient 블립이 grounded arm 을 무음으로 기본 플래너로 강등시키는 것 방지.
+- 검증: oneshot-retry 12 테스트 + grounded-refine·auth-pool(17) 회귀 = 37/37,
+  tsgo exit 0, Bun 게이트 0건.

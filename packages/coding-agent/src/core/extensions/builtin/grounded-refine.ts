@@ -35,6 +35,7 @@ import type {
 import { normalizeRefinementProposal, REFINEMENT_SYSTEM_PROMPT, type RefinementProposal } from "../../refinement/refinement.js";
 import { readFileSync } from "node:fs";
 import { completeSimple } from "@evopi/pi-ai";
+import { retryTransientCompletion } from "../../auth-pool/oneshot-retry.js";
 
 /** External grounding signal, as written to `EVOPI_FEEDBACK_FILE`. */
 export interface GroundedFeedback {
@@ -144,13 +145,19 @@ async function defaultGroundedPlanner(args: {
 		.filter(Boolean)
 		.join("\n\n");
 
-	const response = await completeSimple(
-		model,
-		{
-			systemPrompt: REFINEMENT_SYSTEM_PROMPT,
-			messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
-		},
-		{ maxTokens: 4096, apiKey: auth.apiKey, headers: auth.headers, signal },
+	// A transient provider blip (overloaded/429/5xx) must not silently downgrade
+	// the grounded arm to the ungrounded default planner — retry it (B4/M18).
+	const response = await retryTransientCompletion(
+		() =>
+			completeSimple(
+				model,
+				{
+					systemPrompt: REFINEMENT_SYSTEM_PROMPT,
+					messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
+				},
+				{ maxTokens: 4096, apiKey: auth.apiKey, headers: auth.headers, signal },
+			),
+		{ signal },
 	);
 
 	const text = response.content
