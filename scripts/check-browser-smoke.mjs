@@ -14,6 +14,10 @@ try {
 		format: "esm",
 		logLevel: "silent",
 		outfile: outputPath,
+		// Optional peer dependencies of provider SDKs (e.g. @mistralai/mistralai's
+		// OpenTelemetry hooks) are not installed; a clean `npm install` removes any
+		// stale copy, so the browser build must treat them as externals.
+		external: ["@opentelemetry/*"],
 	});
 	process.exit(0);
 } catch (error) {
