@@ -19,14 +19,18 @@ import { build } from "esbuild";
 
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const outdir = join(packageDir, "dist", "bundle");
-let buildId;
-try {
-	buildId = execFileSync("git", ["describe", "--tags", "--always", "--dirty"], {
-		cwd: dirname(packageDir),
-		encoding: "utf8",
-	}).trim();
-} catch {
-	buildId = `release-${JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).version}`;
+// EVOPI_BUILD_ID lets the release workflow pin the id so the bundle (and the
+// evopi tarball) is reproducible across runners; local builds keep git describe.
+let buildId = process.env.EVOPI_BUILD_ID?.trim();
+if (!buildId) {
+	try {
+		buildId = execFileSync("git", ["describe", "--tags", "--always", "--dirty"], {
+			cwd: dirname(packageDir),
+			encoding: "utf8",
+		}).trim();
+	} catch {
+		buildId = `release-${JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).version}`;
+	}
 }
 
 rmSync(outdir, { recursive: true, force: true });

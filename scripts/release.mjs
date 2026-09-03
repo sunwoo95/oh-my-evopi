@@ -1,43 +1,83 @@
 #!/usr/bin/env node
 /**
- * Release script for pi-mono
+ * Release script for evopi.
  *
  * Usage:
  *   node scripts/release.mjs <major|minor|patch>
  *   node scripts/release.mjs <x.y.z>
- *   node scripts/release.mjs <target> --dry-run   (preview changelog updates only)
+ *   node scripts/release.mjs <target> --dry-run       (preview changelog updates only)
+ *   node scripts/release.mjs <target> --npm-publish   (also publish to the npm registry)
  *
  * Steps:
- * 1. Check for uncommitted changes
+ * 1. Check for uncommitted changes and that the current branch is `main`;
+ *    refuse if the tag vX.Y.Z already exists locally or on origin
  * 2. Bump (or set) the version with `npm version -ws --include-workspace-root`,
  *    verify every package.json (npm's exit code is advisory, see npmVersionVerified),
  *    then sync inter-package ranges and reinstall to rebuild the lockfile
  * 3. Update CHANGELOG.md files: aggregate .changes/*.md fragments into a
  *    [version] - date section, git rm the consumed fragments
- * 4. Commit and tag
- * 5. Publish to npm
+ * 4. Commit ("Release vX.Y.Z") and create a plain lightweight tag vX.Y.Z on it
+ * 5. npm registry publish is OPT-IN (`--npm-publish` or EVOPI_RELEASE_NPM_PUBLISH=1)
+ *    and skipped by default: GitHub Pages is the only distribution channel
+ * 6. Push the branch, then push ONLY that tag (`git push origin refs/tags/vX.Y.Z`,
+ *    never `--tags`). The tag push triggers .github/workflows/release.yml, which
+ *    builds, packs and publishes releases/vX.Y.Z to gh-pages. See docs/release.md.
  */
 
-import { execSync, spawnSync } from "child_process";
-import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
-import { dirname, join } from "path";
+import { execSync, spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildReleaseSection } from "./lib/changelog-fragments.mjs";
 
-const DRY_RUN = process.argv.includes("--dry-run");
-const RELEASE_TARGET = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
+export const NPM_PUBLISH_ENV = "EVOPI_RELEASE_NPM_PUBLISH";
+export const NPM_PUBLISH_FLAG = "--npm-publish";
+export const DRY_RUN_FLAG = "--dry-run";
+export const RELEASE_BRANCH = "main";
+export const RELEASE_WORKFLOW = ".github/workflows/release.yml";
+
+const KNOWN_FLAGS = new Set([DRY_RUN_FLAG, NPM_PUBLISH_FLAG]);
 const BUMP_TYPES = new Set(["major", "minor", "patch"]);
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+const USAGE = `Usage: node scripts/release.mjs <major|minor|patch|x.y.z> [${DRY_RUN_FLAG}] [${NPM_PUBLISH_FLAG}]`;
 
-if (!RELEASE_TARGET || (!BUMP_TYPES.has(RELEASE_TARGET) && !SEMVER_RE.test(RELEASE_TARGET))) {
-	console.error("Usage: node scripts/release.mjs <major|minor|patch|x.y.z> [--dry-run]");
-	process.exit(1);
+/** True when the operator explicitly asked for an npm registry publish (flag or env). */
+export function npmPublishRequested(argv, env = process.env) {
+	if (argv.includes(NPM_PUBLISH_FLAG)) return true;
+	const value = (env[NPM_PUBLISH_ENV] ?? "").trim().toLowerCase();
+	return value === "1" || value === "true";
+}
+
+export function isValidReleaseTarget(target) {
+	return typeof target === "string" && (BUMP_TYPES.has(target) || SEMVER_RE.test(target));
+}
+
+export function tagNameFor(version) {
+	return `v${version}`;
+}
+
+/**
+ * Parse the CLI: one positional release target plus known `--` flags.
+ * Unknown flags are reported (a typo like `--npm-publsh` must not silently
+ * fall back to the default behaviour).
+ */
+export function parseReleaseArgs(argv, env = process.env) {
+	const flags = argv.filter((arg) => arg.startsWith("--"));
+	const positionals = argv.filter((arg) => !arg.startsWith("--"));
+	return {
+		target: positionals[0],
+		extraPositionals: positionals.slice(1),
+		unknownFlags: flags.filter((flag) => !KNOWN_FLAGS.has(flag)),
+		dryRun: flags.includes(DRY_RUN_FLAG),
+		npmPublish: npmPublishRequested(argv, env),
+	};
 }
 
 function run(cmd, options = {}) {
 	console.log(`$ ${cmd}`);
 	try {
 		return execSync(cmd, { encoding: "utf-8", stdio: options.silent ? "pipe" : "inherit", ...options });
-	} catch (e) {
+	} catch (_error) {
 		if (!options.ignoreError) {
 			console.error(`Command failed: ${cmd}`);
 			process.exit(1);
@@ -193,7 +233,7 @@ function fragmentSortKey(path) {
 	return Number.isFinite(epoch) ? epoch : Infinity;
 }
 
-function updateChangelogsForRelease(version) {
+function updateChangelogsForRelease(version, dryRun) {
 	const date = new Date().toISOString().split("T")[0];
 	const changelogs = getChangelogs();
 	const consumedFragments = [];
@@ -214,7 +254,7 @@ function updateChangelogsForRelease(version) {
 			continue;
 		}
 
-		if (DRY_RUN) {
+		if (dryRun) {
 			console.log(`\n--- ${changelog} (${fragments.length} fragments) ---`);
 			const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const sectionRe = new RegExp(`## \\[${escapedVersion}\\][\\s\\S]*?(?=\\n## \\[|$)`);
@@ -227,7 +267,7 @@ function updateChangelogsForRelease(version) {
 	}
 
 	if (consumedFragments.length > 0) {
-		if (DRY_RUN) {
+		if (dryRun) {
 			console.log(`\nWould git rm: ${consumedFragments.join(", ")}`);
 		} else {
 			run(`git rm -q -- ${consumedFragments.map(shellQuote).join(" ")}`);
@@ -245,45 +285,115 @@ function previewVersion(target) {
 	return `${major}.${minor}.${patch + 1}`;
 }
 
-console.log("\n=== Release Script ===\n");
-
-if (DRY_RUN) {
-	const version = previewVersion(RELEASE_TARGET);
-	console.log(`Dry run for v${version}: previewing changelog updates, no files are written.`);
-	updateChangelogsForRelease(version);
-	console.log("\n=== Dry run complete (no changes made) ===");
-	process.exit(0);
+function currentBranch() {
+	return (run("git rev-parse --abbrev-ref HEAD", { silent: true }) || "").trim();
 }
 
-console.log("Checking for uncommitted changes...");
-const status = run("git status --porcelain", { silent: true });
-if (status && status.trim()) {
-	console.error("Error: Uncommitted changes detected. Commit or stash first.");
-	console.error(status);
-	process.exit(1);
+/** Refuse to create a tag that already exists locally or on origin (the workflow would refuse it anyway). */
+function assertTagAvailable(tag) {
+	const local = run(`git rev-parse -q --verify ${shellQuote(`refs/tags/${tag}`)}`, { silent: true, ignoreError: true });
+	if (local && local.trim()) {
+		console.error(`Error: tag ${tag} already exists locally (${local.trim()}). Releases are immutable; pick a new version.`);
+		process.exit(1);
+	}
+	const remote = run(`git ls-remote --exit-code --tags origin ${shellQuote(`refs/tags/${tag}`)}`, {
+		silent: true,
+		ignoreError: true,
+	});
+	if (remote && remote.trim()) {
+		console.error(`Error: tag ${tag} already exists on origin. Releases are immutable; pick a new version.`);
+		process.exit(1);
+	}
 }
-console.log("  Working directory clean\n");
 
-const version = bumpOrSetVersion(RELEASE_TARGET);
-console.log(`  New version: ${version}\n`);
+export function main(argv = process.argv.slice(2), env = process.env) {
+	// Paths below are repo-relative; `npm run release:*` already runs from the root.
+	process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 
-console.log("Updating CHANGELOG.md files...");
-updateChangelogsForRelease(version);
-console.log();
+	const args = parseReleaseArgs(argv, env);
+	if (!isValidReleaseTarget(args.target) || args.extraPositionals.length > 0 || args.unknownFlags.length > 0) {
+		if (args.unknownFlags.length > 0) console.error(`Unknown flag(s): ${args.unknownFlags.join(", ")}`);
+		console.error(USAGE);
+		process.exit(1);
+	}
 
-console.log("Committing and tagging...");
-stageChangedFiles();
-run(`git commit -m "Release v${version}"`);
-run(`git tag v${version}`);
-console.log();
+	console.log("\n=== Release Script ===\n");
 
-console.log("Publishing to npm...");
-run("npm run publish");
-console.log();
+	if (args.dryRun) {
+		const version = previewVersion(args.target);
+		console.log(`Dry run for v${version}: previewing changelog updates, no files are written.`);
+		updateChangelogsForRelease(version, true);
+		console.log(
+			`\nnpm registry publish would be ${args.npmPublish ? "RUN" : "SKIPPED"} (${NPM_PUBLISH_FLAG} / ${NPM_PUBLISH_ENV}=1 opt in).`,
+		);
+		console.log("\n=== Dry run complete (no changes made) ===");
+		process.exit(0);
+	}
 
-console.log("Pushing to remote...");
-run("git push origin main");
-run(`git push origin v${version}`);
-console.log();
+	console.log("Checking for uncommitted changes...");
+	const status = run("git status --porcelain", { silent: true });
+	if (status && status.trim()) {
+		console.error("Error: Uncommitted changes detected. Commit or stash first.");
+		console.error(status);
+		process.exit(1);
+	}
+	console.log("  Working directory clean");
 
-console.log(`=== Released v${version} ===`);
+	const branch = currentBranch();
+	if (branch !== RELEASE_BRANCH) {
+		console.error(
+			`Error: releases are cut from ${RELEASE_BRANCH} (current branch: ${branch}). The tag push publishes whatever the tag points at.`,
+		);
+		process.exit(1);
+	}
+	console.log(`  On branch ${branch}`);
+
+	const plannedVersion = previewVersion(args.target);
+	const tag = tagNameFor(plannedVersion);
+	assertTagAvailable(tag);
+	console.log(`  Tag ${tag} is available\n`);
+
+	const version = bumpOrSetVersion(args.target);
+	if (version !== plannedVersion) {
+		console.error(`Error: expected version ${plannedVersion} after bump, found ${version}.`);
+		process.exit(1);
+	}
+	console.log(`  New version: ${version}\n`);
+
+	console.log("Updating CHANGELOG.md files...");
+	updateChangelogsForRelease(version, false);
+	console.log();
+
+	console.log("Committing and tagging...");
+	stageChangedFiles();
+	run(`git commit -m "Release v${version}"`);
+	// Plain lightweight tag on the bump commit: this is what release.yml matches (v*.*.*).
+	run(`git tag ${tag}`);
+	console.log();
+
+	if (args.npmPublish) {
+		console.log("Publishing to npm (opted in)...");
+		run("npm run publish");
+	} else {
+		console.log(
+			`Skipping npm registry publish: distribution channel is GitHub Pages via ${RELEASE_WORKFLOW} ` +
+				`(opt in with ${NPM_PUBLISH_FLAG} or ${NPM_PUBLISH_ENV}=1).`,
+		);
+	}
+	console.log();
+
+	console.log("Pushing to remote...");
+	run(`git push origin ${RELEASE_BRANCH}`);
+	// Push ONLY this tag (never --tags): the tag push is the release trigger.
+	run(`git push origin ${shellQuote(`refs/tags/${tag}`)}`);
+	console.log();
+
+	console.log(`=== Released v${version} ===`);
+	console.log(`The '${RELEASE_WORKFLOW}' workflow now builds, packs and publishes releases/${tag} to GitHub Pages.`);
+	console.log("Follow it under Actions -> Release, then verify latest.json and an isolated `curl | sh` install (docs/release.md).");
+}
+
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (invokedDirectly) {
+	main();
+}

@@ -1,9 +1,26 @@
 name: Release
 
-# Builds the evopi release, packs the npm tarballs with GitHub Pages tarball
-# URLs baked into their internal @evopi/* dependencies, and publishes the static
-# install tree (install.sh + channel pointer + releases/v<version>/*) to the
-# gh-pages branch. GitHub Pages then serves the curl one-liner installer.
+# Canonical release path (docs/release.md). A plain semver tag vX.Y.Z pushed by
+# scripts/release.mjs builds the evopi release, packs the npm tarballs with
+# GitHub Pages tarball URLs baked into their internal @evopi/* dependencies, and
+# publishes the static install tree (install.sh + stable pointer + latest.json +
+# releases/v<version>/*) to the gh-pages branch. GitHub Pages then serves the
+# curl one-liner installer. GitHub Pages is the ONLY distribution channel: this
+# workflow never publishes to the npm registry and never creates a GitHub Release.
+#
+# Guards (all fail the run before anything is built or pushed):
+#   - the version must be plain semver X.Y.Z (pre-release tags such as
+#     v0.12.0-rc.1 are rejected, so nothing can move the stable pointer to a
+#     non-release build);
+#   - the version must equal the committed root package.json version (and the
+#     packages/coding-agent version), i.e. the tag must sit on the bump commit;
+#   - releases/vX.Y.Z must not already exist on gh-pages (releases are
+#     immutable: bump instead of overwriting).
+#
+# workflow_dispatch with dry_run=true rehearses build -> pack -> site assembly
+# on the real runner and uploads the assembled site as a workflow artifact
+# instead of pushing to gh-pages. Compare that artifact against a published
+# version with `node scripts/compare-release-artifacts.mjs <artifact-dir> <version>`.
 
 on:
   push:
@@ -12,17 +29,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.9.1)"
-        required: true
-      channel:
-        description: "Release channel"
+        description: "Release version (e.g. 0.11.1). Defaults to the root package.json version and must equal it."
         required: false
-        default: stable
-        type: choice
-        options:
-          - stable
-          - beta
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run: build, pack and assemble the site into a workflow artifact; do not push to gh-pages."
+        required: false
+        default: false
+        type: boolean
 
+# One release at a time: a second tag push queues instead of racing the first
+# one for the gh-pages branch. Nothing is cancelled mid-publish.
 concurrency:
   group: release-pages
   cancel-in-progress: false
@@ -34,6 +52,10 @@ env:
   # Public base URL served by GitHub Pages. Must match the gh-pages tree layout
   # (<base>/install.sh, <base>/<channel>, <base>/releases/v<version>/*).
   EVOPI_DOWNLOAD_BASE_URL: https://sunwoo95.github.io/oh-my-evopi
+  # The only channel this workflow publishes. Pre-release versions are rejected
+  # by the semver guard below, so the stable pointer can only ever advance to a
+  # plain X.Y.Z release.
+  EVOPI_RELEASE_CHANNEL: stable
 
 jobs:
   publish:
@@ -55,20 +77,94 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev ripgrep
 
-      - name: Resolve version and channel
+      - name: Resolve version and guard the release
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ github.event.inputs.version }}"
-            channel="${{ github.event.inputs.channel }}"
+          set -euo pipefail
+          dry_run=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$INPUT_VERSION"
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
+              dry_run=true
+            fi
           else
-            version="${GITHUB_REF_NAME#v}"
-            channel="stable"
+            if [ "$REF_TYPE" != "tag" ]; then
+              echo "::error::Release runs only from a tag push or workflow_dispatch (got ${REF_TYPE} ${REF_NAME})."
+              exit 1
+            fi
+            version="$REF_NAME"
           fi
           version="${version#v}"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-          echo "Publishing evopi v${version} (${channel})"
+
+          root_version="$(node -p "require('./package.json').version")"
+          cli_version="$(node -p "require('./packages/coding-agent/package.json').version")"
+          if [ -z "$version" ]; then
+            version="$root_version"
+          fi
+
+          # Guard 1: plain semver only. A pre-release tag (v0.12.0-rc.1) must
+          # never be published as stable.
+          if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Release version must be plain semver X.Y.Z (got '${version}'). Pre-release versions are not published."
+            exit 1
+          fi
+
+          # Guard 2: the tag (or dispatch input) must equal the committed version,
+          # so a tag on an un-bumped commit cannot ship a CHANGELOG/self-eval that
+          # lag the version reported by `evopi --version`.
+          if [ "$version" != "$root_version" ] || [ "$version" != "$cli_version" ]; then
+            echo "::error::Version ${version} does not match package.json (root ${root_version}, packages/coding-agent ${cli_version}). Tag the bump commit created by scripts/release.mjs."
+            exit 1
+          fi
+
+          {
+            echo "version=${version}"
+            echo "dry_run=${dry_run}"
+          } >> "$GITHUB_OUTPUT"
+          echo "evopi v${version} (${EVOPI_RELEASE_CHANNEL}, dry_run=${dry_run})"
+
+      - name: Fetch gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/gh-pages"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf "$work"
+          if git ls-remote --exit-code --heads "$remote" gh-pages >/dev/null 2>&1; then
+            git clone --quiet --branch gh-pages --depth 1 "$remote" "$work"
+          else
+            echo "::warning::gh-pages branch does not exist yet; it will be created as an orphan branch."
+            git clone --quiet --depth 1 "$remote" "$work"
+            git -C "$work" checkout --orphan gh-pages
+            git -C "$work" rm -rf --quiet .
+          fi
+          echo "GH_PAGES_DIR=$work" >> "$GITHUB_ENV"
+
+      - name: Guard against overwriting a published release
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          DRY_RUN: ${{ steps.meta.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Guard 3: releases are immutable. The dry run only warns so that an
+          # already-published version can be rebuilt and compared.
+          if [ -e "$GH_PAGES_DIR/releases/v${VERSION}" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "::warning::releases/v${VERSION} is already published on gh-pages; continuing because this is a dry run (nothing is pushed)."
+            else
+              echo "::error::releases/v${VERSION} already exists on gh-pages. Releases are never overwritten: bump the version with scripts/release.mjs instead."
+              exit 1
+            fi
+          else
+            echo "releases/v${VERSION} is not published yet."
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -77,38 +173,42 @@ jobs:
         run: npm run build
 
       - name: Pack release
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
+          set -euo pipefail
           test -n "$EVOPI_DOWNLOAD_BASE_URL"
           npm run release:pack -- \
-            --channel "${{ steps.meta.outputs.channel }}" \
-            --version "${{ steps.meta.outputs.version }}" \
+            --channel "$EVOPI_RELEASE_CHANNEL" \
+            --version "$VERSION" \
             --base-url "$EVOPI_DOWNLOAD_BASE_URL" \
             --out-dir packages/coding-agent/release/publish
 
       - name: Assemble Pages tree
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          DRY_RUN: ${{ steps.meta.outputs.dry_run }}
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
-          channel="${{ steps.meta.outputs.channel }}"
+          channel="$EVOPI_RELEASE_CHANNEL"
           artifacts="packages/coding-agent/release/publish/artifacts"
           site="$RUNNER_TEMP/site"
           rm -rf "$site"
-          mkdir -p "$site/releases/v${version}"
+          mkdir -p "$site/releases/v${VERSION}"
 
           # Versioned release assets (tarballs + checksums + manifest).
-          cp "$artifacts"/*.tgz "$site/releases/v${version}/"
-          cp "$artifacts/SHA256SUMS" "$site/releases/v${version}/"
-          cp "$artifacts"/*.json "$site/releases/v${version}/"
+          cp "$artifacts"/*.tgz "$site/releases/v${VERSION}/"
+          cp "$artifacts/SHA256SUMS" "$site/releases/v${VERSION}/"
+          cp "$artifacts"/*.json "$site/releases/v${VERSION}/"
 
           # Root-level channel pointer + manifest consumed by install.sh / self-update.
           cp "$artifacts/${channel}" "$site/${channel}"
-          if [ -f "$artifacts/latest.json" ]; then cp "$artifacts/latest.json" "$site/latest.json"; fi
-          if [ -f "$artifacts/beta.json" ]; then cp "$artifacts/beta.json" "$site/beta.json"; fi
+          cp "$artifacts/latest.json" "$site/latest.json"
 
           # Template the installer: replace the contiguous sentinels with the real
           # base URL and default channel. The split guard sentinels stay intact.
           sed -e "s#__EVOPI_DOWNLOAD_BASE_URL__#${EVOPI_DOWNLOAD_BASE_URL}#g" \
-              -e "s#__EVOPI_DEFAULT_RELEASE_CHANNEL__#stable#g" \
+              -e "s#__EVOPI_DEFAULT_RELEASE_CHANNEL__#${channel}#g" \
               install.sh > "$site/install.sh"
 
           # Disable Jekyll so files are served verbatim.
@@ -116,28 +216,53 @@ jobs:
 
           echo "SITE_DIR=$site" >> "$GITHUB_ENV"
 
+          {
+            echo "## evopi v${VERSION} (${channel})"
+            echo
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run: the site tree was uploaded as the \`evopi-site-v${VERSION}\` artifact; nothing was pushed to gh-pages."
+            else
+              echo "Assembled for gh-pages (see the Publish step): \`releases/v${VERSION}/\`, \`${channel}\`, \`latest.json\`, \`install.sh\`."
+            fi
+            echo
+            echo '```'
+            cat "$site/releases/v${VERSION}/SHA256SUMS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::group::Site tree"
+          (cd "$site" && find . -type f | sort)
+          echo "::endgroup::"
+          echo "::group::SHA256SUMS"
+          cat "$site/releases/v${VERSION}/SHA256SUMS"
+          echo "::endgroup::"
+
+      - name: Upload dry-run site artifact
+        if: steps.meta.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evopi-site-v${{ steps.meta.outputs.version }}
+          path: ${{ env.SITE_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Publish to gh-pages
+        if: steps.meta.outputs.dry_run != 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          site="$SITE_DIR"
-          work="$RUNNER_TEMP/gh-pages"
-          rm -rf "$work"
-          git clone --branch gh-pages --depth 1 \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work" \
-            || { git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work" \
-                 && git -C "$work" checkout --orphan gh-pages && git -C "$work" rm -rf . ; }
-
           # Overlay the new release; prior release versions are preserved.
-          cp -a "$site"/. "$work"/
-          cd "$work"
+          cp -a "$SITE_DIR"/. "$GH_PAGES_DIR"/
+          cd "$GH_PAGES_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to publish."
           else
-            git commit -m "Publish evopi v${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.channel }})"
+            git commit --quiet -m "Publish evopi v${VERSION} (${EVOPI_RELEASE_CHANNEL})"
+            # Plain (non-force) push: a concurrent manual overlay makes this fail
+            # non-fast-forward instead of corrupting gh-pages.
             git push origin gh-pages
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

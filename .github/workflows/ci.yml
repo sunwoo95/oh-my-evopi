@@ -115,7 +115,7 @@ jobs:
             command: npm run test:kernel
             install_uv: true
           - name: runtime python
-            package: prime-agent-runtime
+            package: evopi-runtime
             command: uv run python -m unittest discover -s test
             install_uv: true
     steps:
