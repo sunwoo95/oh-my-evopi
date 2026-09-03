@@ -988,3 +988,13 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
 #### M31 완료 — E1 세미나 덱 안전 기본값 슬라이드 (2026-09-03) — 확정: 22번 신설 + 리스크 카드 RESOLVED 재라벨
 - `docs/seminar/build_deck.py`: 슬라이드 22 「안전 기본값 — v0.10.0 · v0.11.0」(Sessions & Permissions 직후), 리스크 슬라이드 39 의 2 카드 「RESOLVED · v0.10.0」 재라벨(→ 슬라이드 22), 스테일 리터럴 갱신(0.9.6→0.11.0, 게이트 7→19, 테스트 10/10→29), 덱 42→43장.
   pptx/pdf 재생성(soffice 24.2), PNG Read 점검 넘침 없음. 헬퍼 확장(`cards(label_color=list)`, `slide_content(co_h)`)은 기본값 바이트 동일.
+
+#### M32 완료 — 통합·배포 라운드 부기: 릴리스 lockfile 정책, 데몬 env 누출 수정, 스코어카드 (2026-09-03)
+- **E2 태그 경로 첫 실행 교훈**: (1) `scripts/release.mjs`(상류 승계)가 `node_modules`·`package-lock.json` 을 지우고 from-scratch `npm install` 을 수행 → 0.12.0 첫 시도에서 의존 ~30종이 조용히 상향되고 `@oh-my-pi/pi-natives` 가 lockfile 에서 탈락해 `release.yml` 의 `npm ci` 가 실패.
+  결정: **커밋된 lockfile 이 정본** — 스크립트는 lockfile 스냅샷 → `npm version` → 복원 → `sync-versions` → `npm install --package-lock-only --ignore-scripts` 로 워크스페이스 버전 필드만 갱신(루트 `version:*` 스크립트 동일). 태그는 수정 커밋으로 이동 후 재실행 성공(v0.12.0, 약 40초).
+  (2) `check:browser-smoke` 는 정리된 `npm install` 뒤 `@mistralai/mistralai` 의 optional peer `@opentelemetry/api` 부재로 실패 → esbuild `external: ["@opentelemetry/*"]`.
+  (3) dry_run 아티팩트 vs 게시 v0.11.0: 의존 타르볼 6종 바이트 동일, `evopi-*.tgz` 는 코드 변경 + 게시본에만 있던 `__pycache__/*.pyc`(로컬 빌드 잔재; CI 빌드가 더 깨끗함) 차이. 향후 릴리스는 태그 경로 전용.
+- **데몬 env 누출(0.12.1)**: 샌드박스에서 `EVOPI_APPROVAL=strict` 로 데몬을 처음 띄운 뒤 env 없는 후속 실행이 계속 strict — 원인 `daemon-supervisor.ts` 워커 spawn env `{...supervisorEnv, ...launchEnv}` 의 오버레이가 "미설정"을 표현 못 함(모든 EVOPI_* 노브에 해당, 0.10.0 이전부터 존재).
+  수정 `daemon-worker-env.ts` `workerBaseEnv()`: 클라이언트 launch env 가 있으면 supervisor env 의 `EVOPI_*`(단 `EVOPI_INTERNAL_*` 제외)를 제거한 뒤 오버레이 → 각 실행이 자기 env 그대로. 레거시(launch env 없는) 클라이언트는 기존 동작.
+- **스코어카드**: `eval/self-eval/0.12.0.json`(4898/1 — `4685-daemon-client-modes` 는 단독 재실행 19/19 통과, 부하 flaky), `eval/self-eval/0.12.1.json`(tsgo 0 · biome 0 · vitest **4903 pass / 0 fail**, 번들 14,826,675 B(+127 KB), S2 19/5/8/10, 시작 374–393 ms, F3 0).
+- **관찰(후속)**: print/daemon 경로에서 `ctx.hasUI` 가 true 라 strict/hazard 차단이 "Blocked by user"(denied-by-user) 로 기록됨; `4603-worker-recovery`·`4685-daemon-client-modes` 는 부하 시 flaky.

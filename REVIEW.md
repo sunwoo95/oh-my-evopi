@@ -796,3 +796,20 @@ CI(ci.yml)에 shellcheck 설치 추가로 check:shell 강제. 후속 계획 docs
 ### [배포완료] 2026-09-03 — v0.11.0 게시 (NS Phase 결과)
 main `bd023dc`(범프) ← `3ba45d1`(트랙 C + 문서) ← `0c89b5f`(트랙 A/B) ← `7b0c97d`(omp 호환·진단), gh-pages `2b8c8f6`(v0.9.1–0.10.0 보존 + v0.11.0).
 라이브 sha 일치 ~40s, 격리 prefix `curl … install.sh | sh` → 0.11.0, 설치본으로 omp 확장 실행·로드 경고·cwd rm 통과·allowlist·풀 로테이션 재확인.
+
+## [체크포인트] 2026-09-03 — NS Phase 2: 미착수 8항목 구현 + D2 심층 분석 → v0.12.0 / v0.12.1
+사용자 지시: "미착수 작업 이어서 진행, 확정 필요 사항은 체크박스로, D2 상세 분석". 상세 DECISIONS 「NS Phase 2」 M24–M32.
+- 분석 워크플로(리더 8 + 합성 1) → 45개 결정 포인트, 제품 방향 12건 체크박스 확정(D2 (b)+(a)·abort 자동 재개, D5 dev|strict|yolo, D1 off,
+  D4 항상 on + edit/hashline 범위, B4 80+LFU(prompt/memory), E2 태그 경로·build-binaries 삭제·npm publish opt-in, A4 세션 범위, E1 22번 슬라이드), 33건 권고안.
+- 구현 워크플로(병렬 5 + 순차 4, 파일 소유권 분리; settings 스키마 선반영) → 통합 followup 패치 12건(rlm-runtime 타입, 3개 런타임 호스트 cwd, 자식 doctrine,
+  supervisor 명령 목록, test:kernel, index.ts export, ci runtime 경로, bundle EVOPI_BUILD_ID 등) → vitest 685/685(관련 28파일) + Python 45+6 + biome 0 + tsgo 0.
+- 샌드박스 실측(빌드본·게시본): 80% 타임아웃 노트, dev 실행/strict 차단, `edit_checkpoint` 엔트리 + index.jsonl, 격리 자식(worktree.patch 생성·제거·부모 더티 유지·notice), PLAN/recall, omp 확장.
+- E2 태그 경로 첫 적용: dry_run(v0.11.0 재현: 의존 6종 바이트 동일) → `release.mjs 0.12.0` → **npm ci 실패**(from-scratch `npm install` 이 lockfile 재해석·pi-natives 탈락)
+  → lockfile 정본 정책으로 스크립트 수정 + 태그 이동 → 성공(40s). 이어 browser-smoke(`@opentelemetry/*` external) 수정.
+- 0.12.1: 게시본 샌드박스에서 **EVOPI_* 노브가 데몬 첫 클라이언트 env 로 고착**되는 기존 버그 발견(strict 1회 → 이후 전부 strict) → `workerBaseEnv()` 수정, 태그 경로 재배포.
+  Pages 배포 1회 transient OIDC 실패(`Failed to get ID Token`) → `gh run rerun --failed` 로 해소.
+- 스코어카드: 0.12.1 = tsgo 0 · biome 0 · vitest 4903/0 · 번들 14,826,675 B · S2 19/5/8/10 · 시작 374–393 ms · F3 0 (`eval/self-eval/0.12.1.json`).
+
+### [배포완료] 2026-09-03 — v0.12.0 → v0.12.1 게시 (태그 경로)
+main `e142139`(Release v0.12.1) ← `8be398c`(데몬 env 수정) ← `5ee5d08`(lockfile 정책) ← `239b853`(Release v0.12.0) ← `887d5e6`…`050d797`(구현 5커밋), 태그 v0.12.0/v0.12.1,
+gh-pages `105e5a0`. 라이브 stable=v0.12.1, 격리 prefix `curl … install.sh | sh` → 0.12.1; strict 첫 실행 뒤 env 없는 실행이 dev 로 동작(누출 수정 확인), strict 재지정 시 차단.

@@ -1,0 +1,104 @@
+{
+	"version": "0.12.1",
+	"commit": "e142139",
+	"timestamp": "2026-09-03T08:17:36.619Z",
+	"environment": {
+		"node": "v24.19.0",
+		"platform": "linux",
+		"arch": "x64"
+	},
+	"metrics": {
+		"G1": {
+			"tsgo": {
+				"codingAgent": {
+					"exit": 0,
+					"errors": 0
+				},
+				"ai": {
+					"exit": 0,
+					"errors": 0
+				}
+			},
+			"biome": {
+				"exit": 0,
+				"errors": 0,
+				"warnings": 0,
+				"diagnostics": 0
+			}
+		},
+		"G2": {
+			"skipped": false,
+			"exit": 0,
+			"total": 4968,
+			"passed": 4903,
+			"failed": 0,
+			"pending": 65,
+			"errors": 0,
+			"testFiles": 369,
+			"failedTestFiles": 0,
+			"success": true,
+			"failedTests": []
+		},
+		"G3": {
+			"status": "present",
+			"bundleBytes": 14826675,
+			"bundleFiles": 39,
+			"cliBytes": 1752
+		},
+		"S1": {
+			"secretEnvNames": 30,
+			"secretEnvPrefixes": 1,
+			"allowlistMode": true
+		},
+		"S2": {
+			"dangerousPatterns": 19,
+			"ipythonShellMarkers": 5,
+			"protectedPathPatterns": 8,
+			"mutationMarkers": 10
+		},
+		"R1": {
+			"cellTimeoutMsDefault": 1800000
+		},
+		"R2": {
+			"stderrCapBytes": 65536
+		},
+		"P1": {
+			"status": "measured",
+			"runs": 5,
+			"exit": 0,
+			"minMs": 374,
+			"medianMs": 379,
+			"maxMs": 393,
+			"samplesMs": [
+				379,
+				382,
+				378,
+				393,
+				374
+			],
+			"versionOutput": "0.12.1"
+		},
+		"H2": {
+			"exit": 0,
+			"shellcheckAvailable": true,
+			"passed": true
+		},
+		"F3": {
+			"filesScanned": 486,
+			"sanctioned": 0,
+			"unexpected": 0,
+			"unexpectedHits": []
+		}
+	},
+	"durationsMs": {
+		"G1.tsgo.codingAgent": 2120,
+		"G1.tsgo.ai": 667,
+		"G1.biome": 749,
+		"G2.vitest": 109266,
+		"G3.bundle": 1,
+		"P1.startup": 1907,
+		"H2.shellcheck": 1343,
+		"F3.gate": 54,
+		"total": 116115
+	}
+}
