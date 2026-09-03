@@ -466,6 +466,10 @@ pi.on("refine_complete", async (event, ctx) => {
 });
 ```
 
+Proposal edits accept the consolidation vocabulary as well: `action` may be `add` (= `create`) or `remove` (= `delete`), case-insensitively, and `{ action: "skip", kind, reason }` records an explicit skip verdict. Skip edits are never applied and never fail; they are returned on `RefinementResult.skippedEdits` (only present when non-empty) and excluded from `changes`. When a per-kind capacity is resolved (`harness.capPerKind` / `EVOPI_HARNESS_CAP_PER_KIND`; default 80 with the evo layer on, unlimited otherwise), applying enforces it on the target store: `prompt`/`memory` overflow is LFU-evicted (lowest `metadata.usage_count`, ties → oldest `updated_at`) as ordinary rollback-able `delete` edits, while a `create` into a full `skill`/`subagent` kind is rejected with `<kind> kind at capacity (n/K); REMOVE first`. Progress-ledger entries (`metadata.bpe === "progress"`) are neither counted nor evicted.
+
+**Built-in grounded-refine (evo layer only).** When the evo layer is enabled, the built-in `grounded-refine` extension owns this hook. It reads `EVOPI_FEEDBACK_FILE` (JSON `{ task, status, detail? }`) and decides per round: no readable signal → `undefined` (stock planner); failure status (`fail|failed|failure|error|errored`) → a grounded planner whose prompt carries the `<external_feedback>` block; pass status (`pass|passed|ok|success|succeeded|solved`) with **zero recall hits this session** → one "success note" round per task that records the approach that worked as an experience entry (EvoHarness-RL note obligation); anything else → `{ skip: true }`. Recall hits are observed as `metadata.usage_count` growth of the local and global harness stores since `session_start`; ipython cells calling `rlm.harness.recall(` are counted separately and only affect the prompt wording. With a resolved capacity the grounded planner also receives the consolidation addendum and an LFU-ordered `<current_harness_state>` overview.
+
 #### session_before_tree / session_tree
 
 Fired on `/tree` navigation. See [Sessions](sessions.md) for tree navigation concepts.

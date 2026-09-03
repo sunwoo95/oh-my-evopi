@@ -63,11 +63,19 @@ measured against.
 
 SPEC §4:56 / DECISIONS R4: an evo-on arm **must** have a grounded signal wired.
 `EVOPI_FEEDBACK_FILE` points at a JSON `{task, status, detail?}`
-(`grounded-refine.ts:39-47`). On a failure `status` (`fail`/`failed`/`failure`/
-`error`/`errored`, `isFailureStatus` :60-65) the refinement planner is replaced
-with one that injects an `<external_feedback>` block (`buildFeedbackBlock` :101);
-on anything else the round is skipped (D1 failure-only trigger); with no readable
-signal the extension is a no-op (quiet-stall guard :74-77).
+(`grounded-refine.ts`, `GroundedFeedback`). On a failure `status` (`fail`/`failed`/
+`failure`/`error`/`errored`, `isFailureStatus`) the refinement planner is replaced
+with one that injects an `<external_feedback>` block (`buildFeedbackBlock`).
+On a pass `status` (`pass`/`passed`/`ok`/`success`/`succeeded`/`solved`,
+`isPassStatus`) the round is skipped **unless** no stored experience was recalled
+during the session (zero `metadata.usage_count` growth in the local+global harness
+stores since `session_start`): then one "success note" refinement round runs per
+task, asking the planner to record the approach that worked as an experience entry
+(B3, EvoHarness-RL note obligation). Any other status skips the round (D1
+failure-only trigger); with no readable signal the extension is a no-op
+(quiet-stall guard). The runner's `success:true` result should therefore be written
+as `{task:<id>, status:"pass"}` rather than left absent when the evo-on arm is meant
+to accumulate experience across attempts.
 
 ```sh
 # eval/package.json overrides: "@oh-my-pi/pi-coding-agent": "file:../packages/coding-agent"

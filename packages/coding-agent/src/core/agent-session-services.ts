@@ -64,6 +64,8 @@ export interface AgentSessionCreationOptions {
 	rlmSessionDir?: string;
 	rlmParentNodeId?: string;
 	rlmParentAgent?: string;
+	/** NS-D1: isolated git worktree the child session runs in (child doctrine). */
+	rlmWorktree?: { path: string; repoRoot: string };
 	subagentRuntimeHost?: SubagentRuntimeHost;
 	rlmHeartbeatController?: AgentRlmHeartbeatController;
 	prewarmIpythonKernel?: boolean;
@@ -168,9 +170,11 @@ export async function createAgentSessionServices(
 	const skipHerdrReporter = options.noBuiltinHerdrReporter || options.resourceLoaderOptions?.noExtensions;
 	// noExtensions is a full opt-out for every built-in; the permission gate
 	// (intent layer, D4) is otherwise always loaded so destructive commands are
-	// gated out of the box. Its blocking behavior is controlled per-session by
-	// EVOPI_PERMISSION_GATE (block|warn|off), then `permissionGate.mode`; the
-	// `permissionGate.allow` regex whitelist bypasses it. See permission-gate.ts.
+	// gated out of the box. Its behavior is controlled per-session by the NS-D5
+	// approval tiers: EVOPI_APPROVAL / `approval.*` (preset dev|strict|yolo, per-axis
+	// policies), with the legacy EVOPI_PERMISSION_GATE (block|warn|off) and
+	// `permissionGate.mode` mapped onto them; the `permissionGate.allow` regex
+	// whitelist bypasses it. See permission-gate.ts.
 	const noBuiltins = options.resourceLoaderOptions?.noExtensions;
 	// The evo-layer grounded-refine extension (D4+D1) is only registered when evo is
 	// enabled; when off (default) it is never loaded, so hasHandlers("session_before_refine")
@@ -180,8 +184,17 @@ export async function createAgentSessionServices(
 		...(skipHerdrReporter ? [] : [createHerdrAgentStateExtension(() => resourceLoader.getLoadedExtensionPaths())]),
 		...(noBuiltins
 			? []
-			: [createPermissionGateExtension({ settings: () => settingsManager.getPermissionGateSettings() })]),
-		...(noBuiltins || !evoEnabled ? [] : [createGroundedRefineExtension()]),
+			: [
+					createPermissionGateExtension({
+						settings: () => ({
+							...settingsManager.getPermissionGateSettings(),
+							approval: settingsManager.getApprovalSettings(),
+						}),
+					}),
+				]),
+		...(noBuiltins || !evoEnabled
+			? []
+			: [createGroundedRefineExtension({ capPerKind: () => settingsManager.getHarnessCapPerKind() })]),
 	];
 	const resourceLoader: DefaultResourceLoader = new DefaultResourceLoader({
 		...(options.resourceLoaderOptions ?? {}),
@@ -267,6 +280,7 @@ export async function createAgentSessionFromServices(
 		rlmSessionDir: options.rlmSessionDir,
 		rlmParentNodeId: options.rlmParentNodeId,
 		rlmParentAgent: options.rlmParentAgent,
+		rlmWorktree: options.rlmWorktree,
 		subagentRuntimeHost: options.subagentRuntimeHost,
 		rlmHeartbeatController: options.rlmHeartbeatController,
 		sessionStartEvent: options.sessionStartEvent,

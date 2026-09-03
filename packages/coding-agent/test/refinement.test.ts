@@ -8,25 +8,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	appendGlobalRefinement,
 	applyRefinementProposal,
+	buildRefinementSystemPrompt,
+	countConsolidationEntries,
 	formatHarnessStateForPrompt,
 	getGlobalHarnessStateDir,
 	getHarnessStatePath,
 	getLocalHarnessStateDir,
 	getRefinementHistory,
 	getRefinementHistoryPath,
+	type HarnessEntry,
 	type HarnessState,
 	inferRefinementResultScope,
 	loadGlobalRefinementHistory,
 	loadHarnessState,
 	mergeHarnessStates,
 	mergeRefinementHistory,
+	normalizeRefinementProposal,
 	planRefinement,
+	REFINEMENT_SYSTEM_PROMPT,
 	type RefinementAction,
 	type RefinementKind,
 	type RefinementProposal,
 	type RefinementResult,
 	refineHarness,
+	renderHarnessOverviewForPrompt,
 	saveHarnessState,
+	selectLfuEvictions,
 } from "../src/core/refinement/index.js";
 import type { CustomEntry } from "../src/core/session-manager.js";
 
@@ -1573,5 +1580,414 @@ describe("global refinement history", () => {
 		});
 
 		expect(plan.rollbackScope).toBe("global");
+	});
+});
+
+describe("harness consolidation (B4): vocabulary, cap, LFU eviction", () => {
+	const T0 = Date.UTC(2026, 0, 1);
+
+	/** Raw store entry with controllable usage_count / updated_at (no apply-time clock). */
+	function rawEntry(
+		kind: RefinementKind,
+		id: string,
+		options: { usage?: number; minute?: number; progress?: boolean; scope?: "local" | "global" } = {},
+	): HarnessEntry {
+		const updated = new Date(T0 + (options.minute ?? 0) * 60_000).toISOString();
+		return {
+			id,
+			kind,
+			title: `${id} title`,
+			content: `${id} content`,
+			path: `${kind}/path`,
+			scope: options.scope ?? "local",
+			reference: kind === "skill" ? skillReference : {},
+			arguments: kind === "skill" ? { input: { type: "string", required: true, description: "x" } } : {},
+			metadata: {
+				...(options.usage !== undefined ? { usage_count: options.usage } : {}),
+				...(options.progress ? { bpe: "progress", status: "done", order: 0 } : {}),
+			},
+			source: "test",
+			created_at: updated,
+			updated_at: updated,
+			version: 1,
+		};
+	}
+
+	/** Store with `count` entries of `kind`; entry i has usage_count i (or `usage(i)`) and updated_at T0 + i minutes. */
+	function seededState(kind: RefinementKind, count: number, usage: (i: number) => number = (i) => i): HarnessState {
+		const state = loadHarnessState(makeTempDir(), "local");
+		for (let i = 0; i < count; i++) {
+			state.entries[kind][`${kind}_${i}`] = rawEntry(kind, `${kind}_${i}`, { usage: usage(i), minute: i });
+		}
+		return state;
+	}
+
+	const createMemory = (id: string) =>
+		proposal("Add memory", [{ action: "create", kind: "memory", id, title: "New", content: "New content" }]);
+
+	it("maps the paper's ADD/REMOVE/SKIP vocabulary onto create/delete/skip case-insensitively; unknown actions pass through", () => {
+		const normalized = normalizeRefinementProposal({
+			edits: [
+				{ action: "ADD", kind: "memory", title: "a", content: "a" },
+				{ action: " remove ", kind: "memory", id: "b" },
+				{ action: "Skip", kind: "memory", reason: "trivial" },
+				{ action: "rename", kind: "memory", id: "c", title: "c", content: "c" },
+				{ action: 42, kind: "memory" },
+			],
+		});
+		expect(normalized.edits.map((edit) => edit.action)).toEqual(["create", "delete", "skip", "rename", 42]);
+
+		const state = loadHarnessState(makeTempDir());
+		const result = applyRefinementProposal(state, normalized, { id: "refine_alias" });
+		expect(result.appliedEdits.map((edit) => edit.error)).toEqual([
+			undefined,
+			"entry not found",
+			"unsupported action rename",
+			"unsupported action 42",
+		]);
+	});
+
+	it("records explicit skip edits as skippedEdits: never applied, never failed, excluded from changes", () => {
+		const state = loadHarnessState(makeTempDir());
+		seedEntry(state, "memory");
+		const snapshot = JSON.stringify(state.entries);
+		const result = applyRefinementProposal(
+			state,
+			proposal("Skip only", [
+				{ action: "skip", kind: "memory", id: "memory_entry", reason: "already covered" },
+				{ action: "skip", kind: "skill", reason: "episode-specific" },
+			]),
+			{ id: "refine_skip" },
+		);
+		expect(result.appliedEdits).toEqual([]);
+		expect(result.skippedEdits).toEqual([
+			{ action: "skip", kind: "memory", id: "memory_entry", reason: "already covered" },
+			{ action: "skip", kind: "skill", id: undefined, reason: "episode-specific" },
+		]);
+		expect(JSON.stringify(state.entries)).toBe(snapshot);
+		expect(state.refinements.at(-1)).toMatchObject({ id: "refine_skip", changes: [] });
+
+		// No skips → the key is absent, so existing result shapes are byte-identical.
+		const plain = applyRefinementProposal(state, createMemory("plain"), { id: "refine_plain" });
+		expect("skippedEdits" in plain).toBe(false);
+	});
+
+	it("ignores usage_count drift in the planning baseline (kernel recall hits) but still rejects version drift", () => {
+		const harnessStateDir = makeTempDir();
+		const baselineState = loadHarnessState(harnessStateDir, "local");
+		baselineState.entries.memory.recalled = rawEntry("memory", "recalled", { usage: 1 });
+		saveHarnessState(harnessStateDir, baselineState);
+
+		const currentState = loadHarnessState(harnessStateDir, "local");
+		currentState.entries.memory.recalled.metadata.usage_count = 4; // recall during the LLM pass
+		const update = proposal("Update recalled", [
+			{ action: "update", kind: "memory", id: "recalled", title: "Updated", content: "Updated content" },
+		]);
+		const ok = applyRefinementProposal(currentState, update, { id: "refine_ok", baselineState });
+		expect(ok.appliedEdits[0]).toMatchObject({ applied: true, id: "recalled" });
+		expect(currentState.entries.memory.recalled.content).toBe("Updated content");
+
+		const drifted = loadHarnessState(harnessStateDir, "local");
+		drifted.entries.memory.recalled.metadata.usage_count = 4;
+		drifted.entries.memory.recalled.version = 2;
+		const rejected = applyRefinementProposal(drifted, update, { id: "refine_conflict", baselineState });
+		expect(rejected.appliedEdits[0]).toMatchObject({
+			applied: false,
+			error: "entry changed during refinement planning",
+		});
+	});
+
+	it("LFU-evicts the least-recalled memory when a create pushes the kind over the cap, as a rollback-able delete", () => {
+		const state = seededState("memory", 80);
+		const result = applyRefinementProposal(state, createMemory("fresh"), { id: "refine_cap", capPerKind: 80 });
+
+		expect(result.appliedEdits).toHaveLength(2);
+		expect(result.appliedEdits[0]).toMatchObject({ action: "create", id: "fresh", applied: true });
+		expect(result.appliedEdits[1]).toMatchObject({
+			action: "delete",
+			kind: "memory",
+			id: "memory_0",
+			applied: true,
+			before: { id: "memory_0", metadata: { usage_count: 0 } },
+		});
+		expect(result.appliedEdits[1].reason).toMatch(/^LFU eviction: memory exceeded cap 80 \(usage_count=0, updated /);
+		expect(result.appliedEdits[1].after).toBeUndefined();
+		expect(state.refinements.at(-1)?.changes).toEqual(["create memory:fresh", "delete memory:memory_0"]);
+		expect(Object.keys(state.entries.memory)).toHaveLength(80);
+		expect(state.entries.memory.memory_0).toBeUndefined();
+		expect(state.entries.memory.fresh).toBeDefined();
+	});
+
+	it("never evicts entries created or updated by the proposal, even when they have the lowest usage", () => {
+		const state = seededState("memory", 80, (i) => i + 5);
+		const result = applyRefinementProposal(
+			state,
+			proposal("Add + touch", [
+				{ action: "create", kind: "memory", id: "fresh", title: "New", content: "c" },
+				{ action: "update", kind: "memory", id: "memory_0", title: "Touched", content: "c" },
+			]),
+			{ id: "refine_protect", capPerKind: 80 },
+		);
+		const evicted = result.appliedEdits.filter((edit) => edit.reason?.startsWith("LFU eviction"));
+		expect(evicted.map((edit) => edit.id)).toEqual(["memory_1"]);
+		expect(state.entries.memory.fresh).toBeDefined();
+		expect(state.entries.memory.memory_0.title).toBe("Touched");
+	});
+
+	it("breaks usage ties by oldest updated_at, then id", () => {
+		const entries = [
+			rawEntry("memory", "b", { usage: 0, minute: 5 }),
+			rawEntry("memory", "a", { usage: 0, minute: 5 }),
+			rawEntry("memory", "old", { usage: 0, minute: 1 }),
+			rawEntry("memory", "hot", { usage: 9, minute: 0 }),
+			rawEntry("memory", "protected", { usage: 0, minute: 0 }),
+		];
+		expect(selectLfuEvictions(entries, 3, new Set(["protected"])).map((entry) => entry.id)).toEqual([
+			"old",
+			"a",
+			"b",
+		]);
+		expect(selectLfuEvictions(entries, 0)).toEqual([]);
+		expect(selectLfuEvictions(entries, 10, new Set(["protected"]))).toHaveLength(4);
+	});
+
+	it("excludes progress-ledger entries from the count and from eviction", () => {
+		const state = seededState("memory", 79);
+		for (let i = 0; i < 5; i++) {
+			state.entries.memory[`progress:${i}`] = rawEntry("memory", `progress:${i}`, { progress: true, minute: 0 });
+		}
+		// 79 + 5 progress + 1 create = 80 non-progress → no eviction.
+		const first = applyRefinementProposal(state, createMemory("fresh_1"), { id: "refine_p1", capPerKind: 80 });
+		expect(first.appliedEdits.map((edit) => edit.action)).toEqual(["create"]);
+		// 81 non-progress → exactly one eviction, and never a progress entry.
+		const second = applyRefinementProposal(state, createMemory("fresh_2"), { id: "refine_p2", capPerKind: 80 });
+		expect(second.appliedEdits.map((edit) => `${edit.action}:${edit.id}`)).toEqual([
+			"create:fresh_2",
+			"delete:memory_0",
+		]);
+		expect(Object.keys(state.entries.memory).filter((id) => id.startsWith("progress:"))).toHaveLength(5);
+		expect(countConsolidationEntries(state)).toEqual({ prompt: 0, memory: 80, skill: 0, subagent: 0 });
+	});
+
+	it.each(["skill", "subagent"] as const)(
+		"rejects an ADD to a full %s kind instead of evicting, until a REMOVE frees capacity",
+		(kind) => {
+			const state = seededState(kind, 3);
+			const skillFields = kind === "skill" ? { reference: skillReference, arguments: {} } : {};
+			const create = (id: string) => ({
+				action: "create" as const,
+				kind,
+				id,
+				title: "t",
+				content: "c",
+				...skillFields,
+			});
+
+			const rejected = applyRefinementProposal(state, proposal("Add", [create("new_one")]), {
+				id: "refine_full",
+				capPerKind: 3,
+			});
+			expect(rejected.appliedEdits).toEqual([
+				expect.objectContaining({
+					id: "new_one",
+					applied: false,
+					error: `${kind} kind at capacity (3/3); REMOVE first`,
+				}),
+			]);
+			expect(Object.keys(state.entries[kind])).toHaveLength(3);
+
+			const paired = applyRefinementProposal(
+				state,
+				proposal("Remove then add", [{ action: "delete", kind, id: `${kind}_0` }, create("new_one")]),
+				{ id: "refine_paired", capPerKind: 3 },
+			);
+			expect(paired.appliedEdits.map((edit) => edit.applied)).toEqual([true, true]);
+			expect(Object.keys(state.entries[kind]).sort()).toEqual([`${kind}_1`, `${kind}_2`, "new_one"].sort());
+		},
+	);
+
+	it("caps each kind independently and leaves updates to a full skill kind alone", () => {
+		const state = seededState("skill", 2);
+		state.entries.memory.m = rawEntry("memory", "m", { usage: 0 });
+		const result = applyRefinementProposal(
+			state,
+			proposal("Mixed", [
+				{
+					action: "update",
+					kind: "skill",
+					id: "skill_0",
+					title: "t2",
+					content: "c2",
+					reference: skillReference,
+					arguments: {},
+				},
+				{ action: "create", kind: "memory", id: "m2", title: "t", content: "c" },
+			]),
+			{ id: "refine_mixed", capPerKind: 2 },
+		);
+		expect(
+			result.appliedEdits.map((edit) => `${edit.applied ? "ok" : "fail"} ${edit.action} ${edit.kind}:${edit.id}`),
+		).toEqual(["ok update skill:skill_0", "ok create memory:m2"]);
+		expect(Object.keys(state.entries.memory)).toEqual(["m", "m2"]);
+	});
+
+	it("is byte-identical to prime when capPerKind is undefined: no eviction, no capacity errors", () => {
+		const memoryState = seededState("memory", 81);
+		const memoryResult = applyRefinementProposal(memoryState, createMemory("fresh"), { id: "refine_off" });
+		expect(memoryResult.appliedEdits).toHaveLength(1);
+		expect(memoryResult.appliedEdits.some((edit) => edit.action === "delete")).toBe(false);
+		expect(Object.keys(memoryState.entries.memory)).toHaveLength(82);
+
+		const skillState = seededState("skill", 3);
+		const skillResult = applyRefinementProposal(
+			skillState,
+			proposal("Add skill", [
+				{
+					action: "create",
+					kind: "skill",
+					id: "s",
+					title: "t",
+					content: "c",
+					reference: skillReference,
+					arguments: {},
+				},
+			]),
+			{ id: "refine_off_skill" },
+		);
+		expect(skillResult.appliedEdits[0]).toMatchObject({ applied: true });
+		expect(buildRefinementSystemPrompt(undefined)).toBe(REFINEMENT_SYSTEM_PROMPT);
+		expect(buildRefinementSystemPrompt()).toBe(REFINEMENT_SYSTEM_PROMPT);
+	});
+
+	it("rollbacks bypass the cap and restore evicted entries from their recorded snapshots", async () => {
+		const state = seededState("memory", 80);
+		const evicting = applyRefinementProposal(state, createMemory("fresh"), { id: "refine_evict", capPerKind: 80 });
+		expect(state.entries.memory.memory_0).toBeUndefined();
+
+		const rollback = await refineHarness([], state, [evicting], {} as never, "api-key", {
+			rollbackId: "refine_evict",
+			capPerKind: 80,
+		});
+		expect(rollback.rollbackOf).toBe("refine_evict");
+		expect(rollback.appliedEdits.map((edit) => `${edit.action} ${edit.kind}:${edit.id}`)).toEqual([
+			"create memory:memory_0",
+			"delete memory:fresh",
+		]);
+		expect(rollback.appliedEdits.every((edit) => edit.applied)).toBe(true);
+		expect(state.entries.memory.memory_0).toMatchObject({ title: "memory_0 title", metadata: { usage_count: 0 } });
+		expect(Object.keys(state.entries.memory)).toHaveLength(80);
+
+		// Over-cap store + rollbackOf: no eviction and no capacity rejection.
+		const over = seededState("skill", 4);
+		const restored = applyRefinementProposal(
+			over,
+			proposal("Rollback create", [
+				{
+					action: "create",
+					kind: "skill",
+					id: "back",
+					title: "t",
+					content: "c",
+					reference: skillReference,
+					arguments: {},
+				},
+			]),
+			{ id: "refine_rb", rollbackOf: "refine_prev", capPerKind: 3 },
+		);
+		expect(restored.appliedEdits).toEqual([expect.objectContaining({ id: "back", applied: true })]);
+		expect(Object.keys(over.entries.skill)).toHaveLength(5);
+	});
+
+	it("buildRefinementSystemPrompt appends the paper's consolidation vocabulary, cap, and counts", () => {
+		const prompt = buildRefinementSystemPrompt({ capPerKind: 80, counts: { memory: 3, skill: 1 } });
+		expect(prompt.startsWith(`${REFINEMENT_SYSTEM_PROMPT}\n\n`)).toBe(true);
+		for (const token of [
+			"ADD",
+			"UPDATE",
+			"REMOVE",
+			"SKIP",
+			'"action":"skip"',
+			"K=80",
+			"memory 3/80",
+			"skill 1/80",
+			"prompt 0/80",
+		]) {
+			expect(prompt).toContain(token);
+		}
+		expect(prompt).toContain("kind at capacity; REMOVE first");
+		expect(buildRefinementSystemPrompt({ capPerKind: 5 })).not.toContain("Current counts");
+	});
+
+	it("renders the overview LFU-ordered with uses= and progress labels only under a policy", () => {
+		const state = seededState("memory", 45, (i) => 45 - i);
+		state.entries.memory["progress:p"] = rawEntry("memory", "progress:p", { progress: true });
+
+		const stock = renderHarnessOverviewForPrompt(state);
+		expect(stock).toContain("memory: 46");
+		expect(stock).toContain("- +6 more memory entries");
+		expect(stock).not.toContain("uses=");
+		expect(stock).not.toContain("[progress]");
+		expect(stock.indexOf("[local:memory_0]")).toBeLessThan(stock.indexOf("[local:memory_1]"));
+
+		const capped = renderHarnessOverviewForPrompt(state, { consolidation: { capPerKind: 80 } });
+		expect(capped).not.toContain("more memory entries");
+		expect(capped).toContain("[progress] [local:progress:p]");
+		expect(capped).toContain("(memory/path, v1) uses=1:");
+		// LFU order: usage 0 (progress entry) first, then memory_44 (uses=1) ... memory_0 (uses=45).
+		const lines = capped.split("\n").filter((line) => line.startsWith("- "));
+		expect(lines[0]).toContain("progress:p");
+		expect(lines[1]).toContain("[local:memory_44]");
+		expect(lines.at(-1)).toContain("[local:memory_0]");
+	});
+
+	it("planRefinement keeps the stock prompt without a cap and adds the addendum + LFU overview with one", async () => {
+		const state = loadHarnessState(makeTempDir(), "local");
+		state.entries.memory.hot = rawEntry("memory", "hot", { usage: 7 });
+		state.entries.memory.cold = rawEntry("memory", "cold", { usage: 0 });
+		state.entries.memory.warm = rawEntry("memory", "warm", { usage: 2 });
+		state.entries.memory.g = rawEntry("memory", "g", { usage: 0, scope: "global" });
+		const reply = () =>
+			completeSimpleMock.mockResolvedValueOnce(
+				assistantText(JSON.stringify({ summary: "s", rationale: "r", expectedOutcome: "e", edits: [] })),
+			);
+
+		reply();
+		await planRefinement([], state, [], createRefineModel(false), "api-key", {});
+		const stock = completeSimpleMock.mock.calls[0][1];
+		expect(stock.systemPrompt).toBe(REFINEMENT_SYSTEM_PROMPT);
+		expect(stock.messages[0].content[0].text).not.toContain("uses=");
+
+		reply();
+		await planRefinement([], state, [], createRefineModel(false), "api-key", { capPerKind: 80 });
+		const capped = completeSimpleMock.mock.calls[1][1];
+		expect(capped.systemPrompt).toContain("K=80");
+		expect(capped.systemPrompt).toContain("memory 3/80"); // global entry excluded from the local target count
+		const userPrompt: string = capped.messages[0].content[0].text;
+		expect(userPrompt).toContain("uses=7");
+		expect(userPrompt.indexOf("[local:cold]")).toBeLessThan(userPrompt.indexOf("[local:warm]"));
+		expect(userPrompt.indexOf("[local:warm]")).toBeLessThan(userPrompt.indexOf("[local:hot]"));
+
+		reply();
+		await planRefinement([], state, [], createRefineModel(false), "api-key", { capPerKind: 80, global: true });
+		expect(completeSimpleMock.mock.calls[2][1].systemPrompt).toContain("memory 1/80");
+	});
+
+	it("refineHarness forwards capPerKind to the apply step", async () => {
+		const state = seededState("memory", 80);
+		completeSimpleMock.mockResolvedValueOnce(
+			assistantText(
+				JSON.stringify({
+					summary: "s",
+					rationale: "r",
+					expectedOutcome: "e",
+					edits: [{ action: "ADD", kind: "memory", id: "fresh", title: "t", content: "c" }],
+				}),
+			),
+		);
+		const result = await refineHarness([], state, [], createRefineModel(false), "api-key", { capPerKind: 80 });
+		expect(result.appliedEdits.map((edit) => `${edit.action}:${edit.id}`)).toEqual([
+			"create:fresh",
+			"delete:memory_0",
+		]);
 	});
 });

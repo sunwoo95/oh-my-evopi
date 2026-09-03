@@ -17,6 +17,20 @@ import { getAgentDir } from "../../config.js";
 import { serializeConversation } from "../compaction/utils.js";
 import { convertToLlm } from "../messages.js";
 import type { CustomEntry } from "../session-manager.js";
+import {
+	type ConsolidationPolicy,
+	capacityError,
+	compareLfu,
+	consolidationAddendum,
+	countConsolidationEntries,
+	evictionReason,
+	isAutoEvictKind,
+	isProgressEdit,
+	normalizeRefinementAction,
+	selectLfuEvictions,
+	stripBookkeeping,
+	usageCount,
+} from "./consolidation.js";
 import { bpeLabel, isProgressEntry, MAX_OPEN_PROGRESS, renderPlanBlock } from "./progress-ledger.js";
 
 export const REFINEMENT_CUSTOM_TYPE = "evopi.refinement";
@@ -29,7 +43,12 @@ const DEFAULT_OVERVIEW_REFINEMENT_LIMIT = 5;
 const DEFAULT_OVERVIEW_CONTENT_LIMIT = 180;
 
 export type RefinementKind = "prompt" | "memory" | "skill" | "subagent";
-export type RefinementAction = "create" | "update" | "delete";
+/**
+ * `skip` (B4) is the paper's explicit SKIP consolidation verdict: recorded on the
+ * result as `skippedEdits`, never applied, never a failure. `add`/`remove` are
+ * accepted as aliases of create/delete at parse time.
+ */
+export type RefinementAction = "create" | "update" | "delete" | "skip";
 export type HarnessScope = "local" | "global";
 
 export interface HarnessEntry {
@@ -91,12 +110,22 @@ export interface AppliedRefinementEdit extends RefinementEdit {
 	error?: string;
 }
 
+/** An explicit planner SKIP: the lesson was judged trivial, redundant, or episode-specific. */
+export interface SkippedRefinementEdit {
+	action: "skip";
+	kind: RefinementKind;
+	id?: string;
+	reason?: string;
+}
+
 export interface RefinementResult {
 	id: string;
 	summary: string;
 	rationale: string;
 	expectedOutcome: string;
 	appliedEdits: AppliedRefinementEdit[];
+	/** Explicit `skip` edits (B4). Present only when the proposal contained at least one. */
+	skippedEdits?: SkippedRefinementEdit[];
 	harnessStatePath: string;
 	rollbackOf?: string;
 	scope?: HarnessScope;
@@ -106,6 +135,13 @@ export interface RefineOptions {
 	instructions?: string;
 	rollbackId?: string;
 	global?: boolean;
+	/**
+	 * Per-kind capacity of the target store (B4). When set, the planner sees the
+	 * consolidation addendum plus an LFU-ordered overview, and applying enforces
+	 * the cap (see {@link applyRefinementProposal}). Undefined = uncapped, prompt
+	 * and behavior byte-identical to prime.
+	 */
+	capPerKind?: number;
 }
 
 export type AutoRefineReason = "turn_interval" | "compact";
@@ -172,6 +208,17 @@ JSON only with this exact shape:
     }
   ]
 }`;
+
+/**
+ * Planner system prompt. Without a policy this is exactly
+ * {@link REFINEMENT_SYSTEM_PROMPT}; with one (a per-kind cap is resolved) the
+ * consolidation addendum (ADD/UPDATE/REMOVE/SKIP vocabulary, K, current counts,
+ * eviction rules) is appended.
+ */
+export function buildRefinementSystemPrompt(policy?: ConsolidationPolicy): string {
+	if (!policy) return REFINEMENT_SYSTEM_PROMPT;
+	return `${REFINEMENT_SYSTEM_PROMPT}\n\n${consolidationAddendum(policy)}`;
+}
 
 const AUTO_REFINE_REVIEW_SYSTEM_PROMPT = `You are evopi's automatic /refine review gate.
 
@@ -556,12 +603,30 @@ export function formatHarnessStateForPrompt(
 	return lines.join("\n").trim();
 }
 
-function overviewForPrompt(state: HarnessState): string {
+const DEFAULT_REFINE_OVERVIEW_LIMIT = 40;
+
+/**
+ * Compact per-entry overview for the planner prompts. Stock: insertion order,
+ * at most 40 entries per kind. With `consolidation` (B4, cap resolved): entries
+ * are listed in LFU order (eviction candidates first) up to `max(40, cap)`, each
+ * line carries ` uses=<usage_count>`, and progress-ledger entries are labelled
+ * so the planner can tell which memory entries the cap ignores.
+ */
+export function renderHarnessOverviewForPrompt(
+	state: HarnessState,
+	options: { consolidation?: ConsolidationPolicy } = {},
+): string {
+	const consolidation = options.consolidation;
+	const limit = consolidation
+		? Math.max(DEFAULT_REFINE_OVERVIEW_LIMIT, consolidation.capPerKind)
+		: DEFAULT_REFINE_OVERVIEW_LIMIT;
 	const lines: string[] = [];
 	for (const kind of Object.keys(state.entries) as RefinementKind[]) {
-		const entries = Object.values(state.entries[kind]);
+		const entries = consolidation
+			? [...Object.values(state.entries[kind])].sort(compareLfu)
+			: Object.values(state.entries[kind]);
 		lines.push(`${kind}: ${entries.length}`);
-		for (const entry of entries.slice(0, 40)) {
+		for (const entry of entries.slice(0, limit)) {
 			const content = entry.content.replace(/\s+/g, " ").slice(0, 240);
 			const argumentsText =
 				entry.kind === "skill" && Object.keys(entry.arguments).length > 0
@@ -571,15 +636,21 @@ function overviewForPrompt(state: HarnessState): string {
 				entry.kind === "skill" && Object.keys(entry.reference).length > 0
 					? ` ref=${JSON.stringify(entry.reference).slice(0, 240)}`
 					: "";
+			const progressText = consolidation && isProgressEntry(entry) ? "[progress] " : "";
+			const usesText = consolidation ? ` uses=${usageCount(entry)}` : "";
 			lines.push(
-				`- [${entry.scope ?? "global"}:${entry.id}] ${entry.title} (${entry.path}, v${entry.version})${referenceText}${argumentsText}: ${content}`,
+				`- ${progressText}[${entry.scope ?? "global"}:${entry.id}] ${entry.title} (${entry.path}, v${entry.version})${usesText}${referenceText}${argumentsText}: ${content}`,
 			);
 		}
-		if (entries.length > 40) {
-			lines.push(`- +${entries.length - 40} more ${kind} entries`);
+		if (entries.length > limit) {
+			lines.push(`- +${entries.length - limit} more ${kind} entries`);
 		}
 	}
 	return lines.join("\n");
+}
+
+function overviewForPrompt(state: HarnessState, options: { consolidation?: ConsolidationPolicy } = {}): string {
+	return renderHarnessOverviewForPrompt(state, options);
 }
 
 function historyForPrompt(history: RefinementResult[]): string {
@@ -589,9 +660,12 @@ function historyForPrompt(history: RefinementResult[]): string {
 	return history
 		.slice(-20)
 		.map((item) => {
-			const edits = item.appliedEdits
-				.map((edit) => `${edit.applied ? "applied" : "failed"} ${edit.action} ${edit.kind}:${edit.id}`)
-				.join(", ");
+			const edits = [
+				...item.appliedEdits.map(
+					(edit) => `${edit.applied ? "applied" : "failed"} ${edit.action} ${edit.kind}:${edit.id}`,
+				),
+				...(item.skippedEdits ?? []).map((edit) => `skipped ${edit.kind}${edit.id ? `:${edit.id}` : ""}`),
+			].join(", ");
 			const rollback = item.rollbackOf ? ` rollbackOf=${item.rollbackOf}` : "";
 			return `[${item.id}]${rollback} ${item.summary}\n${edits}\nExpected outcome: ${item.expectedOutcome}`;
 		})
@@ -682,7 +756,9 @@ export function normalizeRefinementProposal(value: unknown): RefinementProposal 
 		edits: edits
 			.filter((edit): edit is Record<string, unknown> => typeof edit === "object" && edit !== null)
 			.map((edit) => ({
-				action: edit.action as RefinementAction,
+				// B4: accept the paper's ADD/REMOVE/SKIP vocabulary (case-insensitive);
+				// unknown values pass through so validateEdit still reports them.
+				action: normalizeRefinementAction(edit.action) as RefinementAction,
 				kind: edit.kind as RefinementKind,
 				id: typeof edit.id === "string" ? edit.id : undefined,
 				title: typeof edit.title === "string" ? edit.title : undefined,
@@ -750,14 +826,38 @@ function validateEdit(edit: RefinementEdit, computedId?: string): string | undef
 	return undefined;
 }
 
+/**
+ * Apply a proposal to a single store. `capPerKind` (B4) enforces the per-kind
+ * capacity on that store: `skill`/`subagent` creates into a full kind are
+ * rejected ("kind at capacity; REMOVE first"), and `prompt`/`memory` overflow
+ * left after the edits is LFU-evicted (lowest `usage_count`, ties → oldest
+ * `updated_at`), recorded as applied `delete` edits with `before` snapshots so
+ * {@link rollbackProposal} restores them for free. Entries the proposal itself
+ * created or updated are never evicted; progress-ledger entries are neither
+ * counted nor evicted; rollbacks (`rollbackOf`) bypass the cap entirely.
+ * Undefined `capPerKind` = no cap (prime behavior).
+ */
 export function applyRefinementProposal(
 	state: HarnessState,
 	proposal: RefinementProposal,
-	options: { id: string; rollbackOf?: string; scope?: HarnessScope; baselineState?: HarnessState },
+	options: {
+		id: string;
+		rollbackOf?: string;
+		scope?: HarnessScope;
+		baselineState?: HarnessState;
+		capPerKind?: number;
+	},
 ): RefinementResult {
 	const appliedEdits: AppliedRefinementEdit[] = [];
+	const skippedEdits: SkippedRefinementEdit[] = [];
 	const proposalModifiedKeys = new Set<string>();
+	const capPerKind = options.rollbackOf ? undefined : options.capPerKind;
 	for (const edit of proposal.edits) {
+		if (edit.action === "skip") {
+			// Explicit SKIP verdict: recorded, never applied, never a failure.
+			skippedEdits.push({ action: "skip", kind: edit.kind, id: edit.id, reason: edit.reason });
+			continue;
+		}
 		const computedId = edit.id ?? (edit.action === "create" ? slug(edit.title ?? edit.kind, edit.kind) : undefined);
 		const id = computedId ?? "";
 		const validationError = validateEdit(edit, id);
@@ -770,10 +870,12 @@ export function applyRefinementProposal(
 		const before = cloneEntry(records[id]);
 		const entryKey = `${edit.kind}:${id}`;
 		const baseline = cloneEntry(options.baselineState?.entries[edit.kind][id]);
+		// Compare without `metadata.usage_count`: a kernel recall hit during planning
+		// bumps only that counter and must not invalidate a planned UPDATE/REMOVE.
 		if (
 			options.baselineState &&
 			!proposalModifiedKeys.has(entryKey) &&
-			JSON.stringify(before) !== JSON.stringify(baseline)
+			JSON.stringify(stripBookkeeping(before)) !== JSON.stringify(stripBookkeeping(baseline))
 		) {
 			appliedEdits.push({
 				...edit,
@@ -802,6 +904,20 @@ export function applyRefinementProposal(
 			appliedEdits.push({ ...edit, id, applied: false, error: "entry not found" });
 			continue;
 		}
+		if (
+			edit.action === "create" &&
+			capPerKind !== undefined &&
+			!isAutoEvictKind(edit.kind) &&
+			!isProgressEdit(edit)
+		) {
+			// skill/subagent are never auto-evicted (their Python module or delegation
+			// spec may still be referenced), so a full kind rejects the ADD instead.
+			const count = Object.values(records).filter((entry) => !isProgressEntry(entry)).length;
+			if (count >= capPerKind) {
+				appliedEdits.push({ ...edit, id, applied: false, error: capacityError(edit.kind, count, capPerKind) });
+				continue;
+			}
+		}
 
 		const createdAt = before?.created_at ?? now();
 		const version = before ? before.version + 1 : 1;
@@ -825,6 +941,10 @@ export function applyRefinementProposal(
 		appliedEdits.push({ ...edit, id, before, after: cloneEntry(after), applied: true });
 	}
 
+	if (capPerKind !== undefined) {
+		evictOverflow(state, capPerKind, proposalModifiedKeys, appliedEdits);
+	}
+
 	const changes = appliedEdits.filter((edit) => edit.applied).map((edit) => `${edit.action} ${edit.kind}:${edit.id}`);
 	state.refinements.push({
 		id: options.id,
@@ -841,10 +961,54 @@ export function applyRefinementProposal(
 		rationale: proposal.rationale,
 		expectedOutcome: proposal.expectedOutcome,
 		appliedEdits,
+		...(skippedEdits.length > 0 ? { skippedEdits } : {}),
 		harnessStatePath: "",
 		rollbackOf: options.rollbackOf,
 		scope: options.scope,
 	};
+}
+
+/**
+ * LFU-evict `prompt`/`memory` overflow above `capPerKind` after a proposal was
+ * applied. Victims are recorded as applied `delete` edits (with `before`), so
+ * they show up in `changes`, in the refinement history, and roll back normally.
+ */
+function evictOverflow(
+	state: HarnessState,
+	capPerKind: number,
+	protectedKeys: ReadonlySet<string>,
+	appliedEdits: AppliedRefinementEdit[],
+): void {
+	for (const kind of Object.keys(state.entries) as RefinementKind[]) {
+		if (!isAutoEvictKind(kind)) continue;
+		const records = state.entries[kind];
+		const keyByEntry = new Map<HarnessEntry, string>();
+		const candidates: HarnessEntry[] = [];
+		for (const [key, entry] of Object.entries(records)) {
+			if (isProgressEntry(entry)) continue;
+			keyByEntry.set(entry, key);
+			candidates.push(entry);
+		}
+		const overflow = candidates.length - capPerKind;
+		if (overflow <= 0) continue;
+		const protectedIds = new Set<string>();
+		for (const key of protectedKeys) {
+			if (key.startsWith(`${kind}:`)) protectedIds.add(key.slice(kind.length + 1));
+		}
+		for (const victim of selectLfuEvictions(candidates, overflow, protectedIds)) {
+			const key = keyByEntry.get(victim) ?? victim.id;
+			const before = cloneEntry(records[key]);
+			delete records[key];
+			appliedEdits.push({
+				action: "delete",
+				kind,
+				id: key,
+				before,
+				applied: true,
+				reason: evictionReason(victim, capPerKind),
+			});
+		}
+	}
 }
 
 function rollbackProposal(target: RefinementResult): RefinementProposal {
@@ -900,6 +1064,20 @@ export interface RefinementPlan {
 }
 
 /**
+ * Consolidation policy for one planning call (B4): undefined when no cap is
+ * resolved (stock prompt), otherwise the cap plus the target store's current
+ * non-progress counts (`global` → global entries, else local entries).
+ */
+export function resolveConsolidationPolicy(
+	state: HarnessState,
+	options: { capPerKind?: number; global?: boolean; scope?: HarnessScope },
+): ConsolidationPolicy | undefined {
+	if (options.capPerKind === undefined) return undefined;
+	const scope: HarnessScope = options.scope ?? (options.global ? "global" : "local");
+	return { capPerKind: options.capPerKind, counts: countConsolidationEntries(state, scope) };
+}
+
+/**
  * Produce a refinement proposal (the LLM pass, or a rollback proposal) without
  * mutating any harness state. Separated from {@link applyRefinementProposal} so
  * callers can re-read the harness file immediately before applying — the LLM call
@@ -944,8 +1122,11 @@ export async function planRefinement(
 	const scopeInstruction = options.global
 		? "Requested refinement scope: global. Only propose stable cross-session continual harness edits, durable user preferences, reusable skills/subagents, or explicitly project-qualified facts that should affect future evopi sessions. Do not persist session-only progress, temporary blockers, or current-run coordination globally."
 		: "Requested refinement scope: local. Prefer local continual harness edits for current task progress, temporary blockers, current-run coordination, and project facts that are not clearly reusable across evopi sessions. Global entries in the overview are read-only context: do not propose update or delete edits for them; create a local entry instead if an override is needed.";
+	// B4: with a resolved cap the planner sees the consolidation addendum and an
+	// LFU-ordered overview; counts are those of the target store only.
+	const consolidation = resolveConsolidationPolicy(state, options);
 	const userPrompt = [
-		`<current_harness_state>\n${overviewForPrompt(state)}\n</current_harness_state>`,
+		`<current_harness_state>\n${overviewForPrompt(state, { consolidation })}\n</current_harness_state>`,
 		`<refinement_history>\n${historyForPrompt(history)}\n</refinement_history>`,
 		`<conversation>\n${conversationText}\n</conversation>`,
 		`<scope_policy>\n${scopeInstruction}\n</scope_policy>`,
@@ -964,7 +1145,7 @@ export async function planRefinement(
 	const response = await completeSimple(
 		model,
 		{
-			systemPrompt: REFINEMENT_SYSTEM_PROMPT,
+			systemPrompt: buildRefinementSystemPrompt(consolidation),
 			messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
 		},
 		{ maxTokens: refinementMaxOutputTokens(model), signal, apiKey, headers },
@@ -1064,5 +1245,6 @@ export async function refineHarness(
 		id: plan.id,
 		rollbackOf: plan.rollbackOf,
 		scope: plan.rollbackScope ?? (options.global ? "global" : "local"),
+		capPerKind: options.capPerKind,
 	});
 }
