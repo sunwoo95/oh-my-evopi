@@ -3,7 +3,14 @@
 
 참조 시나리오: /opt/workspace/local/sw4kim/my-agent/D1-01.ClaudeCode-Architecture.pdf (45p, 10섹션)
 테마: 그래파이트 다크 + 틸 액센트 (AWS 테마 비사용).
-실행: /tmp/pptx-venv/bin/python build_deck.py  → evopi-architecture.pptx
+실행: /tmp/pptx-venv/bin/python build_deck.py  → evopi-architecture.pptx (43 slides)
+
+빌드 → PDF → PNG 점검 (docs/seminar 에서, 셋 다 tracked 산출물은 .pptx/.pdf 만, preview/ 는 gitignored):
+  /tmp/pptx-venv/bin/python build_deck.py
+  soffice --headless --convert-to pdf --outdir . evopi-architecture.pptx        # LibreOffice 24.x, ~20s
+  pdftoppm -r 70 -png -f 21 -l 22 evopi-architecture.pdf preview/s              # → preview/s-21.png, s-22.png (Read 로 열어 넘침 점검)
+venv 재생성(/tmp 는 재부팅 시 사라짐, pip 직접 설치는 PEP 668 로 실패):
+  /root/.local/bin/uv venv /tmp/pptx-venv && /root/.local/bin/uv pip install --python /tmp/pptx-venv/bin/python python-pptx pillow
 """
 from __future__ import annotations
 
@@ -121,13 +128,15 @@ def callout(slide, y, label, body, h=Inches(0.95)):
 
 
 def cards(slide, y, items, h=Inches(2.05), gap=Inches(0.18), label_color=ACCENT, body_size=11):
-    """items: [(label, head, body)]"""
+    """items: [(label, head, body)]. label_color: 단일 색 또는 카드별 색 리스트(len == len(items))."""
     n = len(items)
     cw = (CW - gap * (n - 1)) / n
+    label_colors = list(label_color) if isinstance(label_color, list) else [label_color] * n
+    assert len(label_colors) == n, "label_color 리스트 길이는 items 와 같아야 한다"
     for i, (label, head, body) in enumerate(items):
         x = LM + (cw + gap) * i
         rect(slide, x, y, cw, h, fill=CARD, line=BORDER)
-        text(slide, x + Inches(0.18), y + Inches(0.12), cw - Inches(0.3), Inches(0.3), label, size=10, color=label_color, bold=True)
+        text(slide, x + Inches(0.18), y + Inches(0.12), cw - Inches(0.3), Inches(0.3), label, size=10, color=label_colors[i], bold=True)
         text(slide, x + Inches(0.18), y + Inches(0.42), cw - Inches(0.3), Inches(0.45), head, size=15, bold=True)
         ln = slide.shapes.add_connector(1, x + Inches(0.18), y + Inches(0.95), x + cw - Inches(0.18), y + Inches(0.95))
         ln.line.color.rgb = BORDER
@@ -263,16 +272,18 @@ def slide_divider(num, title, sub=""):
     footer(s, number=False)
 
 
-def slide_content(title, subtitle, co=None, cds=None, st=None, card_h=None, card_y=None, body_size=11):
+def slide_content(title, subtitle, co=None, cds=None, st=None, card_h=None, card_y=None, body_size=11,
+                  co_h=Inches(0.95), label_color=ACCENT):
+    """co_h: 콜아웃 높이(본문 3줄이면 1.2in). label_color: cards() 로 전달(카드별 리스트 가능)."""
     s = new_slide()
     header(s, title, subtitle)
     y = Inches(1.7)
     if co:
-        callout(s, y, *co)
-        y += Inches(1.15)
+        callout(s, y, *co, h=co_h)
+        y += co_h + Inches(0.2)
     if cds:
         ch = card_h or (Inches(2.55) if st else Inches(3.9))
-        cards(s, card_y or y, cds, h=ch, body_size=body_size)
+        cards(s, card_y or y, cds, h=ch, body_size=body_size, label_color=label_color)
     if st:
         stats(s, st)
     footer(s)
@@ -375,7 +386,7 @@ slide_agenda([
     ("03", "The Agentic Loop", "Think → ipython 실행 → Verify, agentLoop + AgentSession"),
     ("04", "Models & Tools", "9 API 종 · 단일 툴 ipython · IPython 커널(uv + dill)"),
     ("05", "에이전트 구동 + Skills", "5가지 입력 파일, Python 스킬 계약, Harness 원장"),
-    ("06", "Input Layer", "인터페이스 6종, curl 설치, 세션(jsonl+dill), 권한 게이트"),
+    ("06", "Input Layer", "인터페이스 6종, curl 설치, 세션(jsonl+dill), 권한 게이트 + 안전 기본값(v0.10 · v0.11)"),
     ("07", "Knowledge Layer", "시스템 프롬프트 조립, 하네스 주입(MMR), 요약 컴팩션"),
     ("08", "Execution & Multi-Agent", "sdk streamFn 파이프라인(auth-pool·dialect), rlm 서브에이전트"),
     ("09", "Observability & Integration", "확장 훅 31종, 빌트인 3종, MCP(커널 내), 프로바이더, natives"),
@@ -592,9 +603,9 @@ slide_content(
         ("TUI", "대화형 터미널", "pi-tui 기반. 스플래시(EVO 워드마크), /login · /compact · /refine 슬래시 명령."),
         ("HEADLESS", "print · RPC · ACP · SDK", "파이프/에디터 통합/프로그램 임베딩. createAgentSession() 으로 동일 세션 생성."),
         ("DAEMON", "goal · cron · heartbeat", "슈퍼바이저 + 세션 워커(AgentConnection 경계). 장기 무인 실행 — v1 동결."),
-        ("INSTALL", "curl | sh", "install.sh 1,621줄: preflight → tarball+SHA256SUMS → npm -g → (옵션) uv/커널 부트스트랩. 실검증 0.9.6."),
+        ("INSTALL", "curl | sh", "install.sh 1,621줄: preflight → tarball+SHA256SUMS → npm -g → (옵션) uv/커널 부트스트랩. 실검증 0.11.0."),
     ],
-    st=[("1 path", "~/.evopi (.omp/.prime 잔존 0)"), ("0.9.6", "게시 버전 (GitHub Pages)"), ("node ≥22.8", "런타임 (Bun 실코드 0건)"),
+    st=[("1 path", "~/.evopi (.omp/.prime 잔존 0)"), ("0.11.0", "게시 버전 (GitHub Pages)"), ("node ≥22.8", "런타임 (Bun 실코드 0건)"),
         ("evopi", "bin 이름 · APP_NAME")],
     body_size=10,
 )
@@ -605,12 +616,37 @@ slide_content(
         "현 환경은 unprivileged userns 불가로 bwrap 실패 → 컨테이너 경계가 집행 계층을 대신한다(D3 폴백)."),
     cds=[
         ("SESSIONS", "jsonl 트리 + dill", "sessions/<id>.jsonl 대화 트리, session-artifacts/<id>/ 에 kernel-state.dill · scheduled-jobs · harness. resume 시 변수까지 복원."),
-        ("PERMISSION GATE", "block / warn / off", "7개 위험 패턴(rm -rf / 등) + ipython 셸 이스케이프 추출. UI 있으면 Yes/No, 없으면 즉시 block. EVOPI_PERMISSION_GATE."),
+        ("PERMISSION GATE", "block / warn / off", "19 위험 패턴 + rm 대상별 판정, bash()/subprocess 셸 마커 5종, 보호 경로 8종 쓰기 확인. UI 있으면 Yes/No, 없으면 즉시 block. EVOPI_PERMISSION_GATE → 다음 슬라이드."),
         ("SANDBOX PROBE", "bwrap 기능 테스트", "--version 이 아니라 실제 --unshare-user 실행으로 판정. 불가 시 session_start 에 경고 1회, 비활성."),
         ("PROFILES", "strict / dev / eval", "strict=모두 승인, dev=기본(block), eval=무인(컨테이너 전제 + gate off)."),
     ],
-    st=[("7", "위험 명령 패턴"), ("10/10", "게이트 통합 테스트"), ("bwrap ✗", "현 환경 userns 차단"), ("컨테이너", "= 집행 계층 (문서화)")],
+    st=[("19", "위험 명령 패턴 (+ rm 대상 규칙)"), ("29", "게이트 테스트 (16 → 29)"), ("bwrap ✗", "현 환경 userns 차단"), ("컨테이너", "= 집행 계층 (문서화)")],
     body_size=10,
+)
+slide_content(
+    "안전 기본값 — v0.10.0 · v0.11.0", "SE·NS Phase 가 바꾼 안전 기본값 — 전부 opt-out, env/settings 미설정 시 이전 동작과 바이트 동일",
+    co=("DEFAULTS CHANGED, ALL OPT-OUT",
+        "v0.10.0(SE 12라운드): 커널 spawn env 에서 provider 키 제거 · 셀 30분 wall-clock 타임아웃 + 커널 회수 · 게이트 7→19 패턴 + bash() 셀·보호 경로 검사. "
+        "v0.11.0(NS): env allowlist 모드 · rm 대상별 판정 + permissionGate.allow · permission_gate 텔레메트리 · BPE progress 원장/recall(evo 게이트 뒤). "
+        "끄는 법: EVOPI_KERNEL_INHERIT_SECRETS=1 · kernel.cellTimeoutMs=0 · EVOPI_PERMISSION_GATE=warn|off · kernel.envPolicy(기본 denylist)."),
+    co_h=Inches(1.2),
+    cds=[
+        ("KERNEL ENV FILTER", "provider 키 차단",
+         "kernel-env.ts: provider 키 30종 + EVOPI_API_KEY_POOL_* 를 spawn env 에서 제거(진단 tail 에 withheld 목록). "
+         "kernel.envPolicy=allowlist 면 PATH·HOME·로케일·XDG_*·EVOPI_*·Python 툴링 + envAllow 만 전달. opt-out: EVOPI_KERNEL_INHERIT_SECRETS=1."),
+        ("CELL TIMEOUT", "30분 wall-clock",
+         "kernel.cellTimeoutMs 기본 1,800,000ms. 초과 시 interrupt → 무응답이면 커널 폐기, 다음 셀이 스냅샷에서 복원. 오류명 KernelCellTimeout. "
+         "해제: EVOPI_KERNEL_CELL_TIMEOUT_MS=0|off 또는 cellTimeoutMs=0."),
+        ("PERMISSION GATE", "19 패턴 + 보호 경로",
+         "rlm.bash()/os.popen/subprocess/pexpect 셀까지 검사, .env·.git·~/.ssh·키 파일·auth.json 쓰기는 확인 요구. "
+         "rm -r* 은 /, ~, *, .., cwd 외부, sudo 만 위험(A3). permissionGate.mode(block|warn|off) · allow[] 정규식, 전역+프로젝트 settings."),
+        ("GATE TELEMETRY", "permission_gate 로그",
+         "5 결정(allowed-by-whitelist · warned · blocked · confirmed/denied-by-user)을 {hazardKind, tool, mode, sha256 16hex} 로 세션 로그에 기록. "
+         "명령 원문 미저장, 로깅 실패는 결정에 무영향. 미해소: rm -rf .(cwd 자체) 통과 · 타임아웃 UX(A4)."),
+    ],
+    st=[("30 + 1 접두", "차단 provider 키 (S1)"), ("30 min", "셀 타임아웃 기본 (R1)"), ("19 / 5 / 8", "위험 패턴 / 셸 마커 / 보호 경로 (S2)"),
+        ("opt-out", "3 env + 2 settings 키")],
+    card_h=Inches(2.65), body_size=9.5,
 )
 
 # ── 07 Knowledge Layer ───────────────────────────────────────────────────────
@@ -781,7 +817,7 @@ slide_content(
 
 # ── 11 비교와 점검 ───────────────────────────────────────────────────────────
 slide_divider("11", "비교와 점검", "Claude Code · oh-my-pi · prime-agent · evopi")
-CMP_COLS = [("Claude Code", "참조 자료 기준"), ("oh-my-pi", "omp v18.1.2"), ("prime-agent", "v0.9.1"), ("evopi", "v0.9.6")]
+CMP_COLS = [("Claude Code", "참조 자료 기준"), ("oh-my-pi", "omp v18.1.2"), ("prime-agent", "v0.9.1"), ("evopi", "v0.11.0")]
 slide_matrix(
     "4자 비교 매트릭스 (1/2)", "제어 루프 · 도구/실행 · 컨텍스트 · 권한/안전",
     CMP_COLS,
@@ -815,7 +851,7 @@ slide_matrix(
     row_h=Inches(0.78), size=9.5, col_label_w=Inches(1.3),
 )
 s = new_slide()
-header(s, "evopi 하네스 점검 결과", "강점 4 · 리스크 4 — 코드 실측(docs/analysis/evopi-harness-inventory.md) 기준")
+header(s, "evopi 하네스 점검 결과", "강점 4 · 리스크 4 → 2 해소(v0.10.0) — 코드 실측(evopi-harness-inventory.md) 기준")
 cards(s, Inches(1.6), [
     ("STRENGTH", "골격 무수정", "prime agent-loop·커널 무변경, 확장은 streamFn/훅/빌트인 seam 에만. tsgo 0 · Bun 실코드 0 · .omp 0."),
     ("STRENGTH", "대조군 내장", "EVOPI_EVO=off 가 prime 원본과 바이트 동일 — A/B 설계가 코드에 박혀 있다(D7)."),
@@ -823,11 +859,11 @@ cards(s, Inches(1.6), [
     ("STRENGTH", "이식 자산 활성", "dialect·auth-pool·mnemopi·hashline·oneshot-retry 전부 소비 배선 완료(휴면 0)."),
 ], h=Inches(2.15), body_size=10)
 cards(s, Inches(3.95), [
-    ("RISK · HIGH", "커널 env 전체 상속", "repl-manager.ts:257 `...process.env` — API 키가 커널·사용자 코드에 노출(Q6 미해소). allowlist 필터 필요."),
+    ("RESOLVED · v0.10.0", "커널 env 필터", "kernel-env.ts 가 provider 키 30종 + EVOPI_API_KEY_POOL_* 를 spawn env 에서 제거(v0.11.0 allowlist 모드 추가). opt-out EVOPI_KERNEL_INHERIT_SECRETS → 슬라이드 22."),
     ("RISK · HIGH", "OS 샌드박스 미구현", "bwrap 은 프로브만, 래핑 코드는 예제 확장에만. 집행 계층 = 컨테이너 경계 전제 — 배포 문서로만 보장."),
-    ("RISK · MED", "셀 타임아웃 없음", "사용자 ipython 셀에 실행 시간 상한 없음, abort 도 호스트 측 정산만 — Python 무한루프는 죽지 않는다."),
+    ("RESOLVED · v0.10.0", "셀 30분 타임아웃", "kernel.cellTimeoutMs 기본 30분 — interrupt 무응답이면 커널 폐기 후 스냅샷 복원(KernelCellTimeout). 남은 것: 타임아웃 UX(A4) → 슬라이드 22."),
     ("RISK · MED", "실 A/B 미실행", "evo 효과 주장은 아직 논문 수치 인용. 키 확보 후 4-arm 3회 실행 전까지는 가설(GAP-4)."),
-], h=Inches(2.15), body_size=10, label_color=WARN)
+], h=Inches(2.15), body_size=10, label_color=[ACCENT, WARN, ACCENT, WARN])
 text(s, LM, H - Inches(1.05), CW, Inches(0.5),
      "기타: TS bash/edit 툴 정의 미등록(의도된 단일 툴 철학) · `.prime/config.json` 읽기 2곳은 외부 Prime CLI interop(승인된 예외) · "
      "RESULTS.md 의 \"pi-ai mock 없음\" 서술은 현재 providers/faux.ts 존재와 불일치(문서 갱신 필요).", size=9.5, color=MUTED)
@@ -859,7 +895,7 @@ slide_summary(
     "핵심 요약", "여덟 개 레이어 + 하나의 evo 레이어, 하나의 루프로 기억하기",
     [
         ("CORE", "Agentic Loop", "Think → ipython → Verify. prime agent-loop 무수정."),
-        ("INPUT", "진입/세션/권한", "6 인터페이스 · jsonl+dill 복원 · permission-gate."),
+        ("INPUT", "진입/세션/권한", "6 인터페이스 · jsonl+dill 복원 · permission-gate · 안전 기본값(opt-out)."),
         ("KNOWLEDGE", "컨텍스트/하네스", "AGENTS.md · Skills · Harness 원장(MMR) · 요약 컴팩션."),
         ("EXECUTION", "커널/스트림", "IPython 커널 · streamFn(auth-pool·dialect) · sequential."),
         ("EVO", "접지된 진화", "grounded-refine(D1+D4) · EVOPI_EVO · off = prime."),
@@ -879,8 +915,8 @@ slide_refs([
      "골격 · TS 자산 공급원 · 원류. 읽기 전용 분석: docs/analysis/prime.md, omp.md, *-master-arch.md"),
     ("CLAUDE CODE", "Claude Code Architecture (AWS Korea 최우형, 2026) · code.claude.com/docs · agentskills.io · modelcontextprotocol.io",
      "8레이어 맵 참조 시나리오 — docs/analysis/claude-code-arch.md (PDF 페이지 인용, 자료 미기재 항목 분리)"),
-    ("EVOPI", "github.com/sunwoo95/oh-my-evopi · docs/design/{DECISIONS,PORTING,AUDIT-initial-goal}.md · docs/analysis/evopi-harness-inventory.md",
-     "결정 원장(D1-D8, R3-R10) · 이식 등급표 · 코드 실측 인벤토리 · docs/diagrams/*.dot"),
+    ("EVOPI", "github.com/sunwoo95/oh-my-evopi · docs/design/{DECISIONS,PORTING,AUDIT-initial-goal}.md · docs/analysis/*.md",
+     "결정 원장(D1-D8, R3-R10, SE/NS M-항목) · 이식 등급표 · 코드 실측 인벤토리(evopi-harness-inventory.md) · docs/diagrams/*.dot"),
 ])
 slide_thanks()
 

@@ -299,7 +299,8 @@ omp packages/metaharness = 통합 벤치마크 러너 + Harbor 실행 저장소 
   `test/permission-gate.test.ts` **10/10 통과**(mock 세션이 ExtensionRunner.emitToolCall
   first-block 단락을 미러) — block 모드가 bash·ipython 위험 명령을 no-UI에서 차단,
   benign 통과, UI Yes/No 존중. 모드는 `EVOPI_PERMISSION_GATE`(block|warn|off)로
-  세션당 1회 결정, D4 프로파일 매핑 strict/dev→block, eval→off.
+  세션당 1회 결정, D4 프로파일 매핑 strict/dev→block, eval→off. (NS-D5 이후: dev→preset dev(== block),
+  strict→preset strict, eval→yolo(== off); 레거시 block/warn/off 는 매핑 유지 — M24 참조.)
   [폴백-경고만] 은 `warn` 모드로 상시 이용 가능(차단 없이 notify) — 판정 통과했으므로
   기본은 block 유지.
 
@@ -856,7 +857,7 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
 #### M19 완료 — A3 게이트 오탐 완화 + A5 게이트 텔레메트리 (2026-09-03)
 - `permission-gate.ts` 의 `rm -r*` 규칙을 **대상별 판정**으로 교체(`hasDangerousRecursiveRm`, `isDangerousCommand(command, {cwd})`):
   `/`, `~`/`$HOME`, 단독 `*`/`/*`, cwd 를 벗어나는 `..`, cwd 외부 절대경로(앞선 `cd` 추적), `--no-preserve-root`, `sudo` 만 위험.
-  `rm -rf ./dist` 등 프로젝트 내부 경로는 통과. 나머지 20개 파괴 패턴 불변.
+  `rm -rf ./dist` 등 프로젝트 내부 경로는 통과. 나머지 19개 파괴 패턴(정규식) 불변 — rm 2규칙이 함수형 판정으로 옮겨져 self-eval S2 dangerousPatterns=19.
 - 설정 `permissionGate.mode`(block|warn|off, 기본 block) · `permissionGate.allow[]`(정규식 화이트리스트, 잘못된 항목 1회 경고 후 무시);
   `EVOPI_PERMISSION_GATE` 가 설정보다 우선. 게이트 팩토리에 settings reader 주입(`agent-session-services.ts`).
 - A5: 모든 결정(allowed-by-whitelist/warned/blocked/confirmed-by-user/denied-by-user)을 세션 로그 `permission_gate` 엔트리로 기록 —
@@ -915,3 +916,75 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   는 npm 종료코드를 참고값으로 취급 — 루트+전 워크스페이스 버전 일치 검증 후 일치하면 경고만, 불일치 시에만 실패.
 - 주의: `biome.json` includes 가 `scripts/` 를 제외하므로 mjs 는 `--stdin-file-path` 검사로 대체. `sync-versions.js` 가 루트 package.json 의
   `@evopi/pi-coding-agent` 의존 버전은 갱신하지 않음(후속).
+
+### NS Phase 2 시작 — 미착수 항목 구현 + D2 심층 분석 (2026-09-03, 사용자 지시 "미착수 작업 이어서 진행, 확정 필요 사항은 체크박스로, D2 상세 분석")
+
+- **트리거·절차**: 분석 워크플로(omp/prime 리더 2 + 항목 스코프 6 + 합성 1)로 45개 결정 포인트 도출 → 제품 방향 12건을 사용자 체크박스로 확정(아래 M24–M31 각 항목의 "확정" 표기),
+  나머지 33건은 분석 권고안 적용. 구현 워크플로는 파일 소유권 분리(병렬 5: D5·B3/B4·E2·E1·D1 모듈, 순차 4: A4 → D4 → D2 → D1/B4 배선), 통합·followup 패치·빌드·
+  샌드박스 검증·배포는 메인 컨텍스트. 공유 파일(settings-manager.ts)은 스키마·접근자(getApprovalSettings/getSubagentWorktreeSettings/getEditCheckpointSettings/getHarnessCapPerKind)를
+  선반영해 소유권 충돌을 제거.
+- **적용 정책 [자동확정]**: NS Phase 규약 승계(evo-off 바이트 동일, prime 골격 무수정, 원본 레포 무접촉, node 전용). 사용자 확정에 따른 **기본 동작 변화 4건**(모두 opt-out): D4 체크포인트 항상 on(디스크만),
+  D2 steer 주입·abort 후 자동 재개(`EVOPI_STEER_MODE=restart`, `EVOPI_STEER_AUTO_RESUME=off`), E2 릴리스 경로 전환 → semver **minor**.
+- **D2 상세 분석**: `docs/analysis/d2-steering-abort.md`(omp 3중 큐 = steering/follow-up/aside + 세션 IRC 큐, 3층 abort = run signal / interruptible 툴 hard abort / 협력 steeringSignal;
+  prime 루프는 턴 단위 폴링·단일 signal; 갭 표 10항목; 경로 3안). **확정 D2-1: (b) 세션/sdk 에뮬레이션 + (a) 상류 제안 병행, (c) 포크 기각.**
+
+#### M24 완료 — NS-D5 승인 티어 (2026-09-03) — 확정: 프리셋 dev|strict|yolo, 기본 dev
+- `permission-gate.ts:349-861`: tool_call 을 read/write/exec 티어로 분류(ipython 셸 마커→exec, Python 변이 마커·edit 스킬 양 형태→write, 그 외→read; bash→exec; edit/hashline_edit→write; 확장/MCP 툴 기본 exec, `approval.toolTiers` 재정의)
+  + 기존 위험 명령·보호 경로 탐지는 hazard 축으로 유지, 티어/hazard 중 더 엄격한 정책 적용. 정책 auto|warn|ask|deny. dev = 티어 auto·hazard ask(= 기존 block 바이트 동일), strict = write/exec ask, yolo = 전부 auto(= 기존 off).
+- 레거시 매핑: `EVOPI_PERMISSION_GATE`/`permissionGate.mode` off→yolo, block/warn→hazard 오버레이만. 우선순위 EVOPI_APPROVAL > EVOPI_PERMISSION_GATE > approval.<axis> > approval.preset > permissionGate.mode > dev.
+  미설정 시 판정·알림·사유 문자열 동일 — 19건 코퍼스 동등성 테스트(`test/permission-gate.test.ts:1035`). `permissionGate.allow` 매치는 hazard·티어 모두 우회(호출 단위 auto).
+- 텔레메트리 `permission_gate` 엔트리에 tier·policy 무조건 추가(mode 유지, hazardKind 는 감지 시만, decision `denied-by-policy` 신설). `!edit` 변이 마커 추가로 self-eval S2 mutationMarkers 9→10. 테스트 29→56.
+- 관찰: print/daemon 경로는 `ctx.hasUI` 가 true 라 strict 차단이 "Blocked by user"/denied-by-user 로 기록됨(NS Phase 관찰 (2) 동일 원인, 후속).
+
+#### M25 완료 — NS-D1 서브에이전트 git worktree 격리 (2026-09-03) — 확정: 기본 off
+- 모듈 `core/subagent-worktree.ts`: `<base>/<sha1(repoRoot)[:9]>/<childId>`(기본 ~/.evopi/agent/worktrees, `EVOPI_WORKTREE_DIR` > `subagent.worktree.base`) + `<childId>.owner.json` 마커;
+  시드 = `git diff --binary HEAD` 적용 + untracked 복사(합계 > maxSeedBytes 기본 1GiB 면 생성 전 거부) → detached HEAD baseline 커밋(hooks·gpg 비활성) → 델타는 baseline 대비(부모 WIP 유출 없음).
+  완료 = `git add -A` + `diff --cached --binary` → `<childSessionDir>/worktree.patch` → merge patch-apply 면 `git apply --check`→`git apply`(index 불변, 저장소별 직렬화) → 충돌 시 부모 불변 + 패치 경로 보고 → worktree 즉시 제거.
+  prune: dead-pid 마커만(`--all` 확장, `--dry-run`). 24 테스트.
+- 호스트 배선(`agent-session.ts:11237~`): `isolated` kwarg 해석(off 에서 True 는 힌트 오류, opt-in 은 True 만, always 는 False 제외 전부; 비-git cwd 는 공유 cwd 폴백 + `isolation_fallback` notice),
+  worktree 는 spawn 승인 단계에서 동기 생성(실패가 호출자에게 즉시 전달), 격리 자식은 retain 하지 않음(완료 시 dispose → 캡처 → 적용 → 제거 → `rlm_child_terminal_notice` kind "worktree"),
+  호스트가 요청 cwd 를 무시하면 run 명시 오류. `/worktree list|prune`, depth-0 세션 시작 시 mode≠off 면 10분 1회 프루닝. 외부 호스트(AgentSessionRuntime·daemon) cwd 반영과
+  `RlmSpawnHandle.worktree`/`CreateRlmSubagentRuntimeOptions.cwd/worktree`, 자식 doctrine `[isolation]` 문단(`prompts/rlm.ts`, `system-prompt.ts` rlmWorktree)은 메인 컨텍스트가 followup 패치로 완결.
+- Python: `rlm.run(isolated=...)` kwarg 는 설정 시에만 페이로드에 포함(기본 바이트 동일). 이연: pid 재활용 startToken, branch/cherry-pick 머지, 서브모듈, 데몬 rehydration 의 격리 자식 skip.
+- 샌드박스 실측: opt-in + git 레포에서 `await rlm('child ping', isolated=True)` → 자식 실행 → `worktree.patch` 생성 → worktree 제거 → 부모 `git status` 불변(더티 상태 유지).
+
+#### M26 완료 — NS-D4 편집 체크포인트 + /rewind (2026-09-03) — 확정: 영구 세션 항상 on(opt-out), 범위 edit 스킬 + hashline_edit
+- 캡처는 커널 프로세스 내부(`skills/edit/src/edit/__init__.py`, write_text 직전; 호스트는 diff 이벤트를 기록 이후에 받으므로 호스트 캡처 불가). `EVOPI_EDIT_CHECKPOINT_DIR` 미설정 시 기존 경로·diff payload 바이트 동일(`checkpoint_seq` 는 기록 시만).
+  hashline_edit 는 호스트 측 Patcher 적용 전 스냅샷. 저장소 `<artifactDir>/edit-checkpoints/{index.jsonl, blobs/<sha256>}`, 보존 200건/64MiB/파일 4MiB(oldest-first prune + 미참조 blob GC), 세션 삭제 시 제거.
+- 게이팅: `getEditCheckpointSettings().enabled`(기본 on, `EVOPI_EDIT_CHECKPOINT=off` 우선) ∧ 세션 artifact dir 존재(--no-session 제외) 일 때만 커널 env 주입. evo 무관. 시스템 프롬프트/LLM 컨텍스트는 on/off 동일 — **파일시스템 쓰기만 기본값 변화(확정된 유일 예외)**.
+- /rewind: 대상 seq 이후 경로별 최초 before-image 복원(파일만, 커널 네임스페이스 불변, `--restart-kernel` 선택), 드리프트 1건이라도 있으면 전체 거부(`--force`), 되감기 자체가 kind=rewind 레코드(undo 가능),
+  `--with-conversation` 은 navigateTree 후 복원, 모델 가시 `edit_rewind_notice` 주입. 대화형 피커는 기존 showExtensionSelector 재사용(신규 RPC 0). 세션 jsonl `edit_checkpoint` custom 엔트리(비노출)로 툴 호출 귀속.
+- 한계(문서화): bash()/외부 편집기/raw I/O 미추적(드리프트 검사로만 보호), RLM 자식은 자기 artifact dir. 샌드박스 실측: edit 셀 → `edit_checkpoint` 엔트리 + index.jsonl 생성 확인.
+
+#### M27 완료 — D2 steering/abort 에뮬레이션 (경로 (b)) + 상류 제안 (2026-09-03) — 확정: (b)+(a), abort 후 자동 재개, 순수 대기 툴만 interruptible
+- D2-2: next_turn_boundary 사용자 메시지를 `_admitSessionInput` 에서 `agent.steer()` 로 미러링(`agent-session.ts:2426, :5979`) → prime 루프 기존 폴링(`agent-loop.ts:397`)이 run 유지 주입. ActionStore 티켓은 `queued` 유지 → message_start 에 committing, agent_end 에 completed. opt-out `EVOPI_STEER_MODE=restart`.
+- D2-3: `requestAbort()` 가 **활성 run 을 abort 한 경우에만** 정착 후 `resumeQueuedWork()` 자동 호출(omp `#drainStrandedQueuedMessages` 동일 트리거); idle `requestAbort()`·`abort()`(세션 전환/fork/new-session)는 펌프 정지 의미 유지. opt-out `EVOPI_STEER_AUTO_RESUME=off`.
+- D2-4: `tool-definition-wrapper.ts` 에 세션 소유 steer-pending 컨트롤러 주입 — `ToolDefinition.interruptible` 툴만 `AbortSignal.any([run, steer])`(L2), 전 툴 `ctx.steeringSignal`(L3), steer 대기 중 미시작 툴은 omp 동일 문구로 skip. toolExecution parallel 유지(이미 시작한 병렬 형제 skip 불가 = 문서화된 한계).
+- aborted 턴 placeholder 는 pi-ai `transform-messages.ts:171-219` 가 이미 처리(생략), UI 라벨만 `formatAbortedTurnLabel` 로 통일. goal `budget_limit` 알림은 미러링 제외.
+- D2-5: `docs/design/upstream-proposals/prime-d2.md` 2단계 제안(Stage 1 abort(reason)+opt-in placeholder, Stage 2 interrupt 계약). 수용 시 wrapper seam 을 루프 계약으로 치환. `packages/agent` 0행 변경. 신규 13 테스트.
+
+#### M28 완료 — A4 ipython 셀 타임아웃 UX (2026-09-03) — 확정: 80% 고정 상수, 세션 범위 저장 + --global
+- 커널: 재무장 가능한 CellDeadline(`repl-manager.ts:103, :865`), 사용자 셀 1회 80% 경고(`DEFAULT_CELL_TIMEOUT_WARNING_RATIO=0.8`, `shared.ts:18`), `setActiveCellTimeout(ms)` 로 실행 중 셀 즉시 교체(0=해제, 이미 발화면 false → "다음 셀부터").
+  캡 없던 사용자 셀도 비활성 deadline 을 받아 도중 캡 가능; 호스트 내부 셀은 기존 고정 캡.
+- 도구: 80% 시 onUpdate 한 줄 + `ctx.ui.notify('warning')`, 80% 넘긴 셀 최종 결과에만 한 줄 노트, 타임아웃 인터럽트 warning / 커널 재시작 error 토스트. 80% 미만·cellTimeoutMs=0 은 출력·details 바이트 동일.
+- `/kernel`, `/kernel timeout <ms|Ns|Nm|Nh|off> [--global]` — /rlm-max-depth 와 동일한 built-in + AgentSession + agent-connection 경로, 세션 로그 `kernel_cell_timeout_state` 기록·resume 복원, 우선순위 chat > env > settings > default(env 설정 시 --global 가림 경고).
+  settings-manager 에 `setKernelCellTimeoutMs` 1개 메서드 추가(허용된 단일 예외). 데몬 스키마 리비전 26(`get_kernel_cell_timeout_status`/`set_kernel_cell_timeout`, supervisor 명령 목록 포함), `test:kernel` 에 kernel-cell-timeout 테스트 편입.
+- 샌드박스 실측: 4s 캡에 3.5s 셀 → 결과 말미 `[note: this cell used 88% of its 4s wall-clock cap …]`.
+
+#### M29 완료 — B3 성공-무경험 note + B4 통합 어휘·캡 (2026-09-03) — 확정: K=80 + LFU(prompt/memory), skill/subagent ADD 거부, SKIP 명시
+- B3 분기 (d): grounded-refine `session_before_refine` 에 pass ∧ recall 히트 0 → "성공 노트" 라운드(feedback.task 당 세션 1회, 플래너 실패 시 {skip:true}). pass = pass|passed|ok|success|succeeded|solved(대소문자 무시, `eval/arms.md` 문서화).
+  recall 관측 = 로컬+글로벌 harness_state.json `usage_count` 디스크 델타(session_start 스냅샷) + ipython tool_call `rlm.harness.recall(` 스캔, 주입 가능한 `recallTrace` seam(커널 로그는 v2).
+- B4: add→create/remove→delete 별칭·명시 `{"action":"skip"}` 을 파싱에서 무조건 수용(skip 은 `RefinementResult.skippedEdits` 별도 필드 — messages.ts outcome 검증기·TUI 무영향); 캡은 `getHarnessCapPerKind()`(명시 설정/env 우선, evo on 80, 그 외 undefined)
+  → apply 시 prompt/memory LFU(usage_count asc → updated_at asc → id) 퇴출을 applied delete(before+reason) 로 기록해 rollback 가능, skill/subagent 는 "kind at capacity; REMOVE first" 거부, progress 원장 제외, rollbackOf 라운드 캡 우회.
+  플래너는 캡 해결 시에만 addendum + LFU 순·`uses=` overview(`refinement.ts` `buildRefinementSystemPrompt(policy)`, `REFINEMENT_SYSTEM_PROMPT` 상수 불변).
+- 무조건 델타 3건(별칭·skip 수용·baseline 비교 시 usage_count 무시) 은 프롬프트 바이트 무변경 — usage_count 무시는 evo off 에도 있던 "entry changed during refinement planning" 충돌 버그 수정. `/refine`·auto-refine 배선(`agent-session.ts:9027, :9126`, undefined 면 키 미삽입 → 바이트 동일). 테스트 97→13x.
+
+#### M30 완료 — E2 릴리스 자동화(태그 경로) (2026-09-03) — 확정: 보강 + dry_run 리허설 후 전환, build-binaries.yml 삭제, npm publish opt-in
+- `release.yml`: 가드 3종(순수 semver·태그 == 루트/coding-agent package.json 버전·gh-pages releases/vX.Y.Z 존재 시 실패), stable 고정·`channel` 입력 제거, concurrency `release-pages`, `workflow_dispatch dry_run=true` 는 사이트 트리를 `evopi-site-vX.Y.Z` 아티팩트로만 업로드.
+  `build-binaries.yml` 삭제(상류 R2/GitHub Release, evopi 대응물 없음). `scripts/release.mjs`: main·clean·태그 부재 검사, npm version 종료코드 참고값 처리(E3), fragments 집계, `Release vX.Y.Z` 커밋 + 경량 태그, npm publish 는 `--npm-publish`/`EVOPI_RELEASE_NPM_PUBLISH=1` 옵트인, 브랜치 push 후 태그만 push.
+- 재현성 실측: npm pack 은 pacote 고정 mtime(1985-10-26)·portable·gzip 9 → 의존 타르볼 6종은 게시 v0.11.0 과 바이트 동일; `evopi-X.Y.Z.tgz` 는 `__PI_BUILD_ID__`(git describe --dirty) 때문에 CI 와 불일치 → `bundle.mjs` 가 `EVOPI_BUILD_ID` 를 우선하도록 수정(followup), `evopi-ai` 는 generate-models 네트워크 재생성 가변.
+  `scripts/compare-release-artifacts.mjs` 가 SHA 비교 + 불일치 시 내용 목록·package.json 비교. 절차 문서 `docs/release.md`(수동 오버레이 = 폴백). CI runtime 잡 경로 `prime-agent-runtime`→`evopi-runtime` 수정(followup).
+
+#### M31 완료 — E1 세미나 덱 안전 기본값 슬라이드 (2026-09-03) — 확정: 22번 신설 + 리스크 카드 RESOLVED 재라벨
+- `docs/seminar/build_deck.py`: 슬라이드 22 「안전 기본값 — v0.10.0 · v0.11.0」(Sessions & Permissions 직후), 리스크 슬라이드 39 의 2 카드 「RESOLVED · v0.10.0」 재라벨(→ 슬라이드 22), 스테일 리터럴 갱신(0.9.6→0.11.0, 게이트 7→19, 테스트 10/10→29), 덱 42→43장.
+  pptx/pdf 재생성(soffice 24.2), PNG Read 점검 넘침 없음. 헬퍼 확장(`cards(label_color=list)`, `slide_content(co_h)`)은 기본값 바이트 동일.

@@ -73,7 +73,14 @@ A3(오탐 완화, 무인 실행 마찰 제거) → C2(스코어카드 자동화)
 | C3 | **확인** (M23) | kernel-heavy 잡은 이미 matrix 에 존재 — uv 캐시 단계 보강 |
 | E3 | **완료** (M23) | `npm version -ws` exit 1 원인 규명 + `release.mjs` 버전 일치 검사로 흡수 |
 | (점검 후속) | **완료** (M22) | omp extension 호환 shim(`@oh-my-pi/*` 별칭, `pi.zod/typebox/logger`), print 모드 extension 로드 오류 stderr 표시 |
-| A4 · B3 · B4 · D1 · D4 · D5 · E1 · E2 | 미착수 | 다음 라운드. E2 는 이번 릴리스 수동 절차와 병행 검증 예정 |
+| A4 | **완료** (M28) | `/kernel [timeout …]`, 80% 경고 스트림·노트, 실행 중 셀 재무장, 데몬 스키마 26 |
+| B3 · B4 | **완료** (M29) | 성공-무경험 note 분기, add/remove/skip 어휘, K=80 + LFU(prompt/memory)·skill/subagent ADD 거부 |
+| D1 | **완료 v1** (M25) | git worktree 격리(기본 off, opt-in/always), patch 캡처·적용, `/worktree`. COW·branch 머지·pid startToken 이연 |
+| D4 | **완료** (M26) | edit 스킬 + hashline_edit 체크포인트(기본 on, opt-out), `/rewind`, `edit_rewind_notice` |
+| D5 | **완료** (M24) | read/write/exec 티어 + hazard 축, 프리셋 dev/strict/yolo, 레거시 매핑, 텔레메트리 tier/policy |
+| D2 | **구현(경로 (b))** (M27) | agent.steer 미러링 + wrapper L2/L3/skip + abort 자동 재개; 상류 제안 `docs/design/upstream-proposals/prime-d2.md` 제출 대기(병렬 형제 skip 은 Stage 2 수용 시) |
+| E1 | **완료** (M31) | 슬라이드 22 신설, 리스크 카드 RESOLVED, 덱 43장 |
+| E2 | **완료** (M30) | 태그 경로 + dry_run + 가드 3종, build-binaries.yml 삭제, npm publish opt-in, `docs/release.md` |
 | C1 · B5 | 대기 | API 키 셸 export 확보 시 |
 | A1 | 대기 | userns 가용 호스트 확보 시 |
-| D2 | 보류 | prime agent-loop 수정 필요 — 골격 무수정 원칙과 충돌, 상류 제안 경로 검토 |
+| 후속 후보 | — | print/daemon 경로 `ctx.hasUI` 의미(strict 차단이 denied-by-user 로 기록), `rm -rf .` 통과 여부, D1 v2(pid startToken·branch 머지·데몬 rehydration), B3 커널 recall 로그, D4 shared.ts `checkpointSeq` |

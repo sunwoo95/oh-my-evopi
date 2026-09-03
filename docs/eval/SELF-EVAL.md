@@ -120,3 +120,6 @@
 `npm run self-eval`(vitest 포함, 수 분) / `--write` 로 `eval/self-eval/<version>.json` 베이스라인 저장 /
 `--baseline <file>` 로 릴리스 간 비교표, `--fail-on-regression` 으로 하드 지표(vitest fail 증가·tsgo·biome 오류·F3 비승인 히트) 게이트.
 CI `build-check` 잡이 `--skip-tests` 결과를 `self-eval` 아티팩트로 저장한다. 사용법은 `eval/self-eval/README.md`.
+
+측정 주석 (2026-09-03 NS Phase): S2 `dangerousPatterns` 는 A3 이후 19 (recursive-rm 정규식 2개가 대상별 함수 판정으로 이동),
+`mutationMarkers` 는 NS-D5 이후 10 (`!edit` 셸형 마커 +1). 최종 스코어카드의 21/9 는 v0.10.0 시점 값.
