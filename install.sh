@@ -19,7 +19,6 @@ evopi_esc=$(printf '\033')
 evopi_original_path="${PATH:-}"
 evopi_reset="${evopi_esc}[0m"
 evopi_bold="${evopi_esc}[1m"
-evopi_italic="${evopi_esc}[3m"
 evopi_hide_cursor="${evopi_esc}[?25l"
 evopi_show_cursor="${evopi_esc}[?25h"
 evopi_home_cursor="${evopi_esc}[H"
@@ -34,7 +33,7 @@ evopi_color_primary="${evopi_esc}[38;2;127;91;213m"
 evopi_color_scan="${evopi_esc}[38;2;14;165;233m"
 evopi_color_warning="${evopi_esc}[38;2;245;158;11m"
 readonly evopi_unconfigured_base_url evopi_unconfigured_default_release_channel evopi_base_url evopi_default_release_channel evopi_release_channel evopi_package evopi_cmd evopi_esc evopi_original_path
-readonly evopi_reset evopi_bold evopi_italic evopi_hide_cursor evopi_show_cursor evopi_home_cursor evopi_clear_screen evopi_clear_line
+readonly evopi_reset evopi_bold evopi_hide_cursor evopi_show_cursor evopi_home_cursor evopi_clear_screen evopi_clear_line
 readonly evopi_sync_start evopi_sync_end
 readonly evopi_color_text evopi_color_muted evopi_color_dim evopi_color_primary evopi_color_scan evopi_color_warning
 
@@ -53,7 +52,6 @@ evopi_screen_compact=0
 evopi_download_dir=
 evopi_bootstrap_kernel_on_install=0
 evopi_screen_title=
-evopi_screen_status=
 evopi_screen_detail=
 evopi_screen_question=
 evopi_animation_frame=0
@@ -226,7 +224,6 @@ evopi_screen() {
 	if [ -z "$evopi_screen_title" ]; then
 		evopi_screen_title="$1"
 	fi
-	evopi_screen_status=
 	evopi_screen_detail="${3:-}"
 	evopi_screen_question="${4:-}"
 	evopi_screen_frame=$((evopi_screen_frame + 1))
@@ -812,6 +809,7 @@ evopi_prompt_yes_no() {
 	input_prompt="$3"
 
 	if ( : <>/dev/tty ) 2>/dev/null; then
+		# shellcheck disable=SC2209  # literal mode name, not a command
 		prompt_input=tty
 		exec 3<>/dev/tty
 	elif [ -t 0 ]; then
@@ -1110,6 +1108,7 @@ Preparing evopi setup."
 }
 
 node_install_needs_sudo() {
+	# shellcheck disable=SC3028  # guarded by the id -u fallback
 	if [ "${EUID:-$(id -u)}" -eq 0 ]; then
 		return 1
 	fi
@@ -1160,6 +1159,7 @@ install_node_with_homebrew() {
 
 install_node_with_apt() {
 	print_sudo_note
+	# shellcheck disable=SC3028  # guarded by the id -u fallback
 	if [ "${EUID:-$(id -u)}" -eq 0 ]; then
 		apt-get update
 		apt-get install -y nodejs npm
@@ -1296,12 +1296,14 @@ detect_node_binary_arch() {
 }
 
 print_sudo_note() {
+	# shellcheck disable=SC3028  # guarded by the id -u fallback
 	if [ "${EUID:-$(id -u)}" -ne 0 ]; then
 		printf 'This may ask for your sudo password.\n\n'
 	fi
 }
 
 run_with_sudo() {
+	# shellcheck disable=SC3028  # guarded by the id -u fallback
 	if [ "${EUID:-$(id -u)}" -eq 0 ]; then
 		"$@"
 	else
