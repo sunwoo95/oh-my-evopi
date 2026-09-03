@@ -512,8 +512,7 @@ async function ensureUv(options: EnsureKernelPythonOptions): Promise<string> {
 	const localUv = path.join(os.homedir(), ".local", "bin", process.platform === "win32" ? "uv.exe" : "uv");
 	if (await isExecutable(localUv)) return localUv;
 
-	const shouldInstallUv =
-		process.env.EVOPI_INSTALL_UV === "1" || (!options.onProgress && (await confirmUvInstall()));
+	const shouldInstallUv = process.env.EVOPI_INSTALL_UV === "1" || (!options.onProgress && (await confirmUvInstall()));
 	if (!shouldInstallUv) {
 		throw new Error(
 			`uv is required to set up the Python kernel. Install uv yourself: ${UV_INSTALL_COMMAND}, ` +

@@ -1,6 +1,6 @@
-import type { Message, ToolCall } from "./compat/types.js";
 import { AnthropicInbandScanner } from "./anthropic.js";
 import { buildArgShapes, type ToolArgShape } from "./coercion.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import { DeepSeekInbandScanner } from "./deepseek.js";
 import {
 	escapeXmlAttr,
@@ -73,13 +73,13 @@ function renderInvoke(call: ToolCall, shape: ToolArgShape | undefined): string {
 
 function renderInvokes(calls: readonly ToolCall[], tools: NonNullable<DialectRenderOptions["tools"]>): string {
 	const shapes = buildArgShapes(tools);
-	return calls.map(call => renderInvoke(call, shapes.get(call.name))).join("\n");
+	return calls.map((call) => renderInvoke(call, shapes.get(call.name))).join("\n");
 }
 
 const definition: DialectDefinition = {
 	dialect: "xml",
 	prompt: dialectPrompt,
-	createScanner: options => new XmlInbandScanner(options),
+	createScanner: (options) => new XmlInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

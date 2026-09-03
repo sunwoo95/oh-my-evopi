@@ -48,7 +48,7 @@ function encodeAssistantMessage(
 	if (toolCalls.length === 0) return message;
 	const prose = message.content
 		.filter((block): block is TextContent => block.type === "text")
-		.map(block => block.text)
+		.map((block) => block.text)
 		.join("\n");
 	const rendered = definition.renderAssistantToolCalls(toolCalls, { tools });
 	const text = prose.trim().length > 0 ? `${prose.trimEnd()}\n${rendered}` : rendered;

@@ -1,6 +1,6 @@
+import { asRecord, mintToolCallId, partialSuffixOverlapAny } from "./coercion.js";
 import { parseJsonWithRepair } from "./compat/json-parse.js";
 import type { Message, ToolCall } from "./compat/types.js";
-import { asRecord, mintToolCallId, partialSuffixOverlapAny } from "./coercion.js";
 import dialectPrompt from "./deepseek.prompt.js";
 import { assistantTranscriptParts, collectToolResultRun, messageContentText, stringifyJson } from "./rendering.js";
 import type {
@@ -558,12 +558,12 @@ function renderToolCall(call: ToolCall, _options: DialectRenderOptions = {}): st
 
 function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRenderOptions = {}): string {
 	if (calls.length === 0) return "";
-	const body = calls.map(call => renderToolCall(call, options)).join("");
+	const body = calls.map((call) => renderToolCall(call, options)).join("");
 	return `${DEEPSEEK_TOOL_CALLS_BEGIN}${body}${DEEPSEEK_TOOL_CALLS_END}`;
 }
 
 function renderToolResults(results: readonly DialectToolResult[], _options: DialectRenderOptions = {}): string {
-	return results.map(result => `${DEEPSEEK_TOOL_OUTPUT_BEGIN}${result.text}${DEEPSEEK_TOOL_OUTPUT_END}`).join("\n");
+	return results.map((result) => `${DEEPSEEK_TOOL_OUTPUT_BEGIN}${result.text}${DEEPSEEK_TOOL_OUTPUT_END}`).join("\n");
 }
 
 function renderThinking(text: string): string {
@@ -574,7 +574,7 @@ function renderThinking(text: string): string {
 function renderTranscript(messages: readonly Message[], options: DialectRenderOptions = {}): string {
 	if (messages.length === 0) return "";
 	let out = DEEPSEEK_BOS;
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);
@@ -598,7 +598,7 @@ function renderTranscript(messages: readonly Message[], options: DialectRenderOp
 const definition: DialectDefinition = {
 	dialect: "deepseek",
 	prompt: dialectPrompt,
-	createScanner: options => new DeepSeekInbandScanner(options),
+	createScanner: (options) => new DeepSeekInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

@@ -83,7 +83,7 @@ function combineSchemas(left: unknown, right: unknown): unknown {
 function mergeArrayValues(left: unknown[], right: unknown[]): unknown[] {
 	const merged = [...left];
 	for (const value of right) {
-		if (!merged.some(existing => areJsonValuesEqual(existing, value))) {
+		if (!merged.some((existing) => areJsonValuesEqual(existing, value))) {
 			merged.push(value);
 		}
 	}
@@ -150,7 +150,7 @@ function hasNullType(type: unknown): boolean {
 
 /** True if any variant in `anyOf` declares (only) a null type. Used to avoid double-adding `{type:"null"}`. */
 function hasNullVariant(variants: unknown[]): boolean {
-	return variants.some(variant => isJsonObject(variant) && hasNullType(variant.type));
+	return variants.some((variant) => isJsonObject(variant) && hasNullType(variant.type));
 }
 
 /**
@@ -197,7 +197,7 @@ function schemaMapNeedsDraft202012Upgrade(value: unknown, epoch: number): boolea
 function schemaNeedsDraft202012UpgradeImpl(value: unknown, epoch: number): boolean {
 	if (Array.isArray(value)) {
 		if (!once(value, epoch)) return false;
-		return value.some(entry => schemaNeedsDraft202012UpgradeImpl(entry, epoch));
+		return value.some((entry) => schemaNeedsDraft202012UpgradeImpl(entry, epoch));
 	}
 	if (!isJsonObject(value)) return false;
 	if (!once(value, epoch)) return false;

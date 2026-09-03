@@ -10,5 +10,6 @@
  * sole external upstream dependency, ArkType's `Type`, is stubbed structurally
  * (see ./schema/omptype.ts) because evopi tools carry plain JSON Schema.
  */
+
+export { type JsonSchemaToTsOptions, jsonSchemaToTypeScript } from "./schema/typescript.js";
 export { toolWireSchema } from "./schema/wire.js";
-export { jsonSchemaToTypeScript, type JsonSchemaToTsOptions } from "./schema/typescript.js";

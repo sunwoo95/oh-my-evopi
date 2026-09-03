@@ -29,7 +29,14 @@ import {
 	SNAPSHOT_ROWS_AUTO_PUT_WARNING,
 } from "./messages.js";
 import { isReadMetadataLine, stripOneLeadingHashlinePrefix } from "./prefixes.js";
-import { type BlockTarget, cloneCursor, isHunkHeaderText, type ParsedRange, type Token, Tokenizer } from "./tokenizer.js";
+import {
+	type BlockTarget,
+	cloneCursor,
+	isHunkHeaderText,
+	type ParsedRange,
+	type Token,
+	Tokenizer,
+} from "./tokenizer.js";
 import type { Anchor, BlockSpan, Cursor, Edit, FileOp, PasteTarget } from "./types.js";
 
 /** Bounds parser amplification before the target file's line count is available. */
@@ -430,7 +437,7 @@ export class Executor {
 			const exact =
 				previous !== undefined &&
 				previous.sourceLines.size === hunk.sourceLines.size &&
-				[...hunk.sourceLines].every(line => previous.sourceLines.has(line));
+				[...hunk.sourceLines].every((line) => previous.sourceLines.has(line));
 			if (exact && !previous.clipboardDependent) {
 				dropped.add(previous.lineNum);
 				for (const line of previous.sourceLines) {
@@ -447,7 +454,7 @@ export class Executor {
 					"Issue ONE hunk per range; payload is only the final desired content, never a before/after pair.",
 			);
 		}
-		if (dropped.size > 0) this.#edits = this.#edits.filter(edit => !dropped.has(edit.lineNum));
+		if (dropped.size > 0) this.#edits = this.#edits.filter((edit) => !dropped.has(edit.lineNum));
 	}
 
 	#handleLiteralPayload(text: string, lineNum: number): void {
@@ -690,7 +697,7 @@ export class Executor {
 		this.#edits.push({
 			kind: "block",
 			anchor: { ...anchor },
-			payloads: payloads.map(payload => payload.text),
+			payloads: payloads.map((payload) => payload.text),
 			...(mode === undefined ? {} : { mode }),
 			...(register === undefined ? {} : { register }),
 			lineNum,

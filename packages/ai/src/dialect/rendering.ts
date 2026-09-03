@@ -3,7 +3,7 @@ import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "./c
 import type { DialectRenderOptions, DialectToolResult } from "./types.js";
 
 export function renderToolResponseResults(results: readonly DialectToolResult[]): string {
-	return results.map(result => `<tool_response>\n${result.text}\n</tool_response>`).join("\n");
+	return results.map((result) => `<tool_response>\n${result.text}\n</tool_response>`).join("\n");
 }
 
 export function kimiCallId(name: string, id: string, index: number): string {
@@ -111,7 +111,7 @@ export function renderChatMlTranscript(
 ): string {
 	if (messages.length === 0) return "";
 	let out = config.bos ?? "";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);
@@ -141,7 +141,7 @@ export function renderLegacyTextTranscript(
 	config: LegacyTextTranscriptConfig,
 ): string {
 	let out = "";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);

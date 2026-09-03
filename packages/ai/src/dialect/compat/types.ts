@@ -123,8 +123,18 @@ export type AssistantMessageEvent =
 	| { type: "toolcall_start"; contentIndex: number; partial: AssistantMessage }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
 	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }
-	| { type: "done"; contentIndex?: undefined; reason: Extract<StopReason, "stop" | "length" | "toolUse">; message: AssistantMessage }
-	| { type: "error"; contentIndex?: undefined; reason: Extract<StopReason, "aborted" | "error">; error: AssistantMessage };
+	| {
+			type: "done";
+			contentIndex?: undefined;
+			reason: Extract<StopReason, "stop" | "length" | "toolUse">;
+			message: AssistantMessage;
+	  }
+	| {
+			type: "error";
+			contentIndex?: undefined;
+			reason: Extract<StopReason, "aborted" | "error">;
+			error: AssistantMessage;
+	  };
 
 /** A tool-call demonstration: keyword-argument payload for one invocation. */
 export interface ToolCallExample<TArgs = Record<string, unknown>> {

@@ -407,9 +407,7 @@ describe("ACP mode end to end", () => {
 		});
 		await vi.waitFor(() =>
 			expect(
-				updates.some(
-					(update) => update.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "terminalQuiescence",
-				),
+				updates.some((update) => update.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "terminalQuiescence"),
 			).toBe(true),
 		);
 		const correlated = updates
@@ -639,9 +637,9 @@ describe("ACP mode end to end", () => {
 			prompt: [{ type: "text", text: "cancel twice" }],
 		});
 		await vi.waitFor(() =>
-			expect(
-				updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary"),
-			).toBe(true),
+			expect(updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary")).toBe(
+				true,
+			),
 		);
 		await client.notify("session/cancel", { sessionId: session.sessionId });
 		await abortStarted;
@@ -695,9 +693,9 @@ describe("ACP mode end to end", () => {
 			prompt: [{ type: "text", text: "delegate" }],
 		});
 		await vi.waitFor(() =>
-			expect(
-				updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary"),
-			).toBe(true),
+			expect(updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary")).toBe(
+				true,
+			),
 		);
 		await client.notify("session/cancel", { sessionId: session.sessionId });
 		await aborted;
@@ -773,9 +771,9 @@ describe("ACP mode end to end", () => {
 			prompt: [{ type: "text", text: "delegate" }],
 		});
 		await vi.waitFor(() =>
-			expect(
-				updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary"),
-			).toBe(true),
+			expect(updates.some((item) => item.update?._meta?.[EVOPI_META_NAMESPACE]?.phase === "responseBoundary")).toBe(
+				true,
+			),
 		);
 		const closing = client.request("session/close", { sessionId: session.sessionId });
 		await expect(prompt).resolves.toBeDefined();

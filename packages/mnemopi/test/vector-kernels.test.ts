@@ -1,4 +1,3 @@
-import { describe, expect, it, test } from "vitest";
 import {
 	buildExactVectorIndex,
 	clusterByCosineSimilarity,
@@ -8,6 +7,7 @@ import {
 	mmrRerank,
 	searchExactVectorIndex,
 } from "@evopi/mnemopi";
+import { describe, expect, it, test } from "vitest";
 import { cosineSimilarityPairs, mmrRerankIndices, vectorIndexTopK } from "../src/native.js";
 
 /** Deterministic LCG so parity failures reproduce exactly. */
@@ -63,7 +63,7 @@ describe("MMR reranking (mmrRerankIndices path)", () => {
 			{ content: "unrelated topic about gardening", score: 0.5 },
 		];
 		const reranked = mmrRerank(results, 0.5, 3);
-		expect(reranked.map(result => result.content)).toContain("unrelated topic about gardening");
+		expect(reranked.map((result) => result.content)).toContain("unrelated topic about gardening");
 	});
 
 	it("handles single and empty result sets", () => {
@@ -95,8 +95,8 @@ describe("MMR reranking (mmrRerankIndices path)", () => {
 		for (const lambda of [0.0, 0.3, 0.7, 1.0]) {
 			for (const topK of [1, 10, count, count + 5]) {
 				const order = contents.map((_, i) => i).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
-				const sortedContents = order.map(i => contents[i] ?? "");
-				const sortedScores = order.map(i => scores[i] ?? 0);
+				const sortedContents = order.map((i) => contents[i] ?? "");
+				const sortedScores = order.map((i) => scores[i] ?? 0);
 				const selected: number[] = [0];
 				const remaining = sortedContents.map((_, i) => i).slice(1);
 				while (remaining.length > 0 && selected.length < topK) {
@@ -201,7 +201,7 @@ describe("exact vector index (vectorIndexTopK path)", () => {
 		const limit = 25;
 		const result = vectorIndexTopK(matrix, dims, query, limit);
 		expect(result).not.toBeNull();
-		expect(Array.from(result?.indices ?? new Uint32Array())).toEqual(hits.slice(0, limit).map(h => h.row));
+		expect(Array.from(result?.indices ?? new Uint32Array())).toEqual(hits.slice(0, limit).map((h) => h.row));
 		for (let i = 0; i < limit; i += 1) {
 			expectClose(result?.scores[i] ?? Number.NaN, hits[i]?.score ?? Number.NaN);
 		}
@@ -226,14 +226,10 @@ describe("exact vector index (vectorIndexTopK path)", () => {
 describe("cosine clustering (cosineSimilarityPairs path)", () => {
 	it("groups near-duplicate vectors and isolates unrelated ones", () => {
 		const clusters = clusterByCosineSimilarity(
-			[
-				new Float32Array([1, 0, 0]),
-				new Float32Array([1, 0, 0]),
-				new Float32Array([0, 1, 0]),
-			],
+			[new Float32Array([1, 0, 0]), new Float32Array([1, 0, 0]), new Float32Array([0, 1, 0])],
 			0.9,
 		);
-		expect(clusters.map(c => c.length).sort()).toEqual([1, 2]);
+		expect(clusters.map((c) => c.length).sort()).toEqual([1, 2]);
 	});
 
 	it("matches an independent TS connected-components reference", () => {
@@ -274,7 +270,7 @@ describe("cosine clustering (cosineSimilarityPairs path)", () => {
 		}
 		const normalize = (groups: number[][]): string =>
 			groups
-				.map(g => [...g].sort((a, b) => a - b).join(","))
+				.map((g) => [...g].sort((a, b) => a - b).join(","))
 				.sort()
 				.join("|");
 

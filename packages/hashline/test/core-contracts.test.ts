@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	applyEdits,
 	detectLineEnding,
@@ -13,6 +12,7 @@ import {
 	Recovery,
 	type SplitOptions,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const repl = (text: string): string => `+${text}`;
 
@@ -126,7 +126,7 @@ describe("hashline parser — range-anchor contracts", () => {
 		const diff = `PUT ${tag(2)}-${tag(4)}:\n${repl("line one")}\n${tag(3)}:line two`;
 		const { edits, warnings } = parsePatch(diff);
 		expect(applyEdits("aaa\nbbb\nccc\nddd\neee", edits).text).toBe("aaa\nline one\nline two\neee");
-		expect(warnings.some(w => /Auto-prefixed bare body row/.test(w))).toBe(true);
+		expect(warnings.some((w) => /Auto-prefixed bare body row/.test(w))).toBe(true);
 	});
 
 	it("rejects overlapping replacement ranges", () => {

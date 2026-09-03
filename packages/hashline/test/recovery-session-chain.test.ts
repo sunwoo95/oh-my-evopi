@@ -9,7 +9,7 @@
  * standard session-chain banner, and anchors shifted by prior insertions remap
  * to the same logical line before replay.
  */
-import { describe, expect, it } from "vitest";
+
 import {
 	computeFileHash,
 	InMemorySnapshotStore,
@@ -18,6 +18,7 @@ import {
 	RECOVERY_SESSION_CHAIN_WARNING,
 	Recovery,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "/tmp/__hashline-recovery-session-chain__.ts";
 

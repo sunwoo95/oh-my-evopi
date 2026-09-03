@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { applyEdits, type BlockResolver, type BlockSpan, Patch, parsePatch } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 /**
  * After-insert landing correction: an `insert after N:` body indented
@@ -119,7 +119,7 @@ describe("after-insert landing shift", () => {
 		expect(result.text).toBe(
 			["function f() {", "    const t = mk({", "    });", "}", "ref = t;", "x();", ""].join("\n"),
 		);
-		expect(result.warnings?.some(w => /moved past 1 closing line to after line 4/.test(w))).toBe(true);
+		expect(result.warnings?.some((w) => /moved past 1 closing line to after line 4/.test(w))).toBe(true);
 	});
 });
 
@@ -152,7 +152,7 @@ describe("insert-after-block inward landing shift", () => {
 				"\n",
 			),
 		);
-		expect(result.warnings?.some(w => /PUT >2\*: .*placed inside the block, after line 3/.test(w))).toBe(true);
+		expect(result.warnings?.some((w) => /PUT >2\*: .*placed inside the block, after line 3/.test(w))).toBe(true);
 	});
 
 	it("lands right after the opener of an empty block", () => {
@@ -165,7 +165,7 @@ describe("insert-after-block inward landing shift", () => {
 		expect(result.text).toBe(
 			["function f() {", "    afterEach(() => {", "        setup();", "    });", "}", ""].join("\n"),
 		);
-		expect(result.warnings?.some(w => /placed inside the block, after line 2/.test(w))).toBe(true);
+		expect(result.warnings?.some((w) => /placed inside the block, after line 2/.test(w))).toBe(true);
 	});
 
 	it("crosses nested trailing closers and stops at the body's claimed depth", () => {
@@ -180,7 +180,7 @@ describe("insert-after-block inward landing shift", () => {
 		expect(result.text).toBe(
 			["foo(() => {", "    bar(() => {", "        x();", "    });", "    baz();", "});", ""].join("\n"),
 		);
-		expect(result.warnings?.some(w => /placed inside the block, after line 4/.test(w))).toBe(true);
+		expect(result.warnings?.some((w) => /placed inside the block, after line 4/.test(w))).toBe(true);
 	});
 
 	it("leaves a sibling-depth body after the block (the literal contract)", () => {
@@ -214,7 +214,7 @@ describe("insert-after-block inward landing shift", () => {
 		expect(result.text).toBe(
 			["foo(() => {", "    bar(() => {", "        x();", "    }); // bar", "});", "        y();", ""].join("\n"),
 		);
-		expect(result.warnings?.some(w => /placed inside the block/.test(w)) ?? false).toBe(false);
+		expect(result.warnings?.some((w) => /placed inside the block/.test(w)) ?? false).toBe(false);
 	});
 });
 
@@ -274,20 +274,20 @@ describe("opener-anchored after-insert escape (the stdout_policy incident)", () 
 		// The mod landed after the impl closer (line 12), inside `mod testing`.
 		expect(lines[11]).toBe("   }");
 		expect(lines[13]).toBe("\tmod stdout_policy {");
-		expect(warnings.some(w => /PUT >5: line 5 opens a block/.test(w))).toBe(true);
+		expect(warnings.some((w) => /PUT >5: line 5 opens a block/.test(w))).toBe(true);
 	});
 
 	it("keeps a bare shallower statement literal (first-statement inserts survive)", () => {
 		const { text, warnings } = applyRust(RUST_FILE, "PUT >5:\n+   let x = 1;");
 		expect(text.split("\n")[5]).toBe("   let x = 1;");
-		expect(warnings.some(w => /opens a block/.test(w))).toBe(false);
+		expect(warnings.some((w) => /opens a block/.test(w))).toBe(false);
 	});
 
 	it("keeps an equal-depth body literal (matches the outward shift's contract)", () => {
 		const body = ["PUT >5:", "+      fn extra(&self) -> u32 {", "+         2", "+      }"].join("\n");
 		const { text, warnings } = applyRust(RUST_FILE, body);
 		expect(text.split("\n")[5]).toBe("      fn extra(&self) -> u32 {");
-		expect(warnings.some(w => /opens a block/.test(w))).toBe(false);
+		expect(warnings.some((w) => /opens a block/.test(w))).toBe(false);
 	});
 
 	it("abandons the escape when the relocated result does not parse", () => {
@@ -296,14 +296,14 @@ describe("opener-anchored after-insert escape (the stdout_policy incident)", () 
 		const body = ["PUT >5:", "+   Some(1) => {", "+   }"].join("\n");
 		const { text, warnings } = applyRust(RUST_FILE, body);
 		expect(text.split("\n")[5]).toBe("   Some(1) => {");
-		expect(warnings.some(w => /opens a block/.test(w))).toBe(false);
+		expect(warnings.some((w) => /opens a block/.test(w))).toBe(false);
 	});
 
 	it("stays literal without a parseable path (no probe, no relocation)", () => {
 		const { edits } = parsePatch(MOD_BODY);
 		const result = applyEdits(RUST_FILE, edits);
 		expect(result.text.split("\n")[6]).toBe("\tmod stdout_policy {");
-		expect((result.warnings ?? []).some(w => /opens a block/.test(w))).toBe(false);
+		expect((result.warnings ?? []).some((w) => /opens a block/.test(w))).toBe(false);
 	});
 
 	it("escapes a shallower function body past a class in TypeScript", () => {
@@ -323,6 +323,6 @@ describe("opener-anchored after-insert escape (the stdout_policy incident)", () 
 				"",
 			].join("\n"),
 		);
-		expect((result.warnings ?? []).some(w => /PUT >2: line 2 opens a block/.test(w))).toBe(true);
+		expect((result.warnings ?? []).some((w) => /PUT >2: line 2 opens a block/.test(w))).toBe(true);
 	});
 });

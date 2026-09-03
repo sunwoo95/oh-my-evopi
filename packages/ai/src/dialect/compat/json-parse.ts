@@ -633,7 +633,7 @@ export function parseStreamingJsonThrottled<T = Record<string, unknown>>(
 export type JsonPrefixState = "complete" | "prefix" | "invalid";
 
 /** What the strict-prefix scanner expects at the current position. */
-const enum JsonExpect {
+enum JsonExpect {
 	Value,
 	ObjKeyOrEnd,
 	ObjKey,

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { buildCompactDiffPreview } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 describe("buildCompactDiffPreview", () => {
 	it("renders current lines and omits removed content while preserving counts", () => {

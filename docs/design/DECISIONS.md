@@ -750,3 +750,20 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   래핑 — transient 블립이 grounded arm 을 무음으로 기본 플래너로 강등시키는 것 방지.
 - 검증: oneshot-retry 12 테스트 + grounded-refine·auth-pool(17) 회귀 = 37/37,
   tsgo exit 0, Bun 게이트 0건.
+
+### M17 완료 — mnemopi 배선: harness 주입 MMR 선택기 + cost-aware 예산 (2026-09-02, B3/R10)
+
+- **트리거**: 수정 계획 B3 (GAP-2 P2c + D8 백로그 ③ 선반영).
+- 신규 `refinement/harness-select.ts`: `createMmrHarnessSelector` — mnemopi
+  `mmrRerank`+`jaccardSimilarity`(임베딩 불요)로 kind별 엔트리 선택. relevance=
+  updated_at 최근성(반감기 7일), diversity=jaccard, `charBudget` 문자 예산(첫
+  엔트리는 항상 포함). `formatHarnessStateForPrompt`에 `selectEntries` seam 추가
+  (미전달 시 기존 사전순 절단 바이트 동일 — 테스트 고정).
+- **게이트(D7)**: settings `harness.selection`("lexicographic"|"mmr") 명시 우선,
+  미설정 시 evo 게이트 추종(evo on→mmr). `getHarnessSelectionSettings()`
+  (settings-manager). agent-session `_resolveHarnessSelector()` → buildSystemPrompt
+  `harnessSelector` 옵션 → 양 call site 전달.
+- **의존**: coding-agent에 `@evopi/mnemopi` 워크스페이스 의존 추가 + pack 스크립트
+  releasePackages에 mnemopi 추가(타르볼 의존 404 방지, Phase 1 선례).
+- 검증: harness-select 6 테스트(다양화·최근성·예산·결정성·seam off 바이트 동일·
+  overflow), tsgo exit 0, Bun 게이트 0건.

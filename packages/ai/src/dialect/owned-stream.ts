@@ -1,10 +1,4 @@
-import type {
-	AssistantMessage,
-	AssistantMessageEventStream as AssistantMessageEventStreamType,
-	TextContent,
-	ThinkingContent,
-	ToolCall,
-} from "./compat/types.js";
+import { buildStringArgsResolver } from "./coercion.js";
 import {
 	clearStreamingPartialJson,
 	copyCursorExecResolved,
@@ -13,7 +7,13 @@ import {
 	setStreamingPartialJson,
 } from "./compat/block-symbols.js";
 import { AssistantMessageEventStream } from "./compat/event-stream.js";
-import { buildStringArgsResolver } from "./coercion.js";
+import type {
+	AssistantMessage,
+	AssistantMessageEventStream as AssistantMessageEventStreamType,
+	TextContent,
+	ThinkingContent,
+	ToolCall,
+} from "./compat/types.js";
 import { createInbandScanner } from "./factory.js";
 import type { Dialect, InbandScanEvent, InbandScanner, InbandTool } from "./types.js";
 
@@ -203,7 +203,7 @@ class InbandStreamProjector {
 			parseThinking: true,
 		});
 		this.#responseOpenTokens = RESPONSE_OPEN_TOKENS[dialect];
-		this.#responseOverlapLength = Math.max(0, ...this.#responseOpenTokens.map(token => token.length - 1));
+		this.#responseOverlapLength = Math.max(0, ...this.#responseOpenTokens.map((token) => token.length - 1));
 		this.#partial = { ...seed, content: [] };
 		if (emitEvents) this.#out.push({ type: "start", partial: this.#partial });
 	}
@@ -345,7 +345,7 @@ class InbandStreamProjector {
 		this.#apply(this.#scanner.flush());
 		this.#closeText();
 		this.#closeThinking();
-		const hasTools = this.#partial.content.some(block => block.type === "toolCall");
+		const hasTools = this.#partial.content.some((block) => block.type === "toolCall");
 		const reason =
 			hasTools && message.stopReason !== "length" ? "toolUse" : message.stopReason === "length" ? "length" : "stop";
 		const finalMessage: AssistantMessage = { ...message, content: this.#partial.content, stopReason: reason };

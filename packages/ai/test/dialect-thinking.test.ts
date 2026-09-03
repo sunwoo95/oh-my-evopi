@@ -23,29 +23,29 @@ function scan(
 function thinkingText(events: readonly InbandScanEvent[]): string {
 	return events
 		.filter((e): e is Extract<InbandScanEvent, { type: "thinkingDelta" }> => e.type === "thinkingDelta")
-		.map(e => e.delta)
+		.map((e) => e.delta)
 		.join("");
 }
 
 function visibleText(events: readonly InbandScanEvent[]): string {
 	return events
 		.filter((e): e is Extract<InbandScanEvent, { type: "text" }> => e.type === "text")
-		.map(e => e.text)
+		.map((e) => e.text)
 		.join("");
 }
 
 function callNames(events: readonly InbandScanEvent[]): { name: string; arguments: Record<string, unknown> }[] {
 	return events
 		.filter((e): e is Extract<InbandScanEvent, { type: "toolEnd" }> => e.type === "toolEnd")
-		.map(e => ({ name: e.name, arguments: e.arguments }));
+		.map((e) => ({ name: e.name, arguments: e.arguments }));
 }
 
 function thinkingBoundaries(events: readonly InbandScanEvent[]): number {
-	return events.filter(e => e.type === "thinkingStart").length;
+	return events.filter((e) => e.type === "thinkingStart").length;
 }
 
 function thinkingEndCount(events: readonly InbandScanEvent[]): number {
-	return events.filter(e => e.type === "thinkingEnd").length;
+	return events.filter((e) => e.type === "thinkingEnd").length;
 }
 
 describe("gemma thought channel (<|channel>thought…<channel|>)", () => {

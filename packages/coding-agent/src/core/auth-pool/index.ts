@@ -23,6 +23,19 @@ export {
 	status,
 } from "./classify.js";
 export {
+	classifyOneshotFailure,
+	extractRetryHintFromText,
+	getHeadersFromError,
+	getRetryAfterMsFromHeaders,
+	type HeadersLike,
+	isTransientStatus,
+	type OneshotFailureKind,
+	type OneshotRetryInfo,
+	type OneshotRetryOptions,
+	retryTransientCompletion,
+} from "./oneshot-retry.js";
+export { CredentialPool, type CredentialPoolOptions, createPoolResolver, fnv1a32 } from "./pool.js";
+export {
 	type ApiKey,
 	type ApiKeyResolveContext,
 	type ApiKeyResolver,
@@ -37,16 +50,3 @@ export {
 	seedApiKeyResolver,
 	withAuth,
 } from "./retry.js";
-export { CredentialPool, type CredentialPoolOptions, createPoolResolver, fnv1a32 } from "./pool.js";
-export {
-	classifyOneshotFailure,
-	extractRetryHintFromText,
-	getHeadersFromError,
-	getRetryAfterMsFromHeaders,
-	type HeadersLike,
-	isTransientStatus,
-	type OneshotFailureKind,
-	type OneshotRetryInfo,
-	type OneshotRetryOptions,
-	retryTransientCompletion,
-} from "./oneshot-retry.js";

@@ -79,7 +79,7 @@ describe("withAuth drives the pool through real credential rotation", () => {
 		const pool = new CredentialPool({ primary: "bad0", pool: ["bad1", "good"] });
 		const resolver = createPoolResolver(pool);
 		const seen: string[] = [];
-		const result = await withAuth(resolver, async key => {
+		const result = await withAuth(resolver, async (key) => {
 			seen.push(key);
 			if (key !== "good") {
 				const err = new Error("forbidden") as Error & { status: number };
@@ -96,7 +96,7 @@ describe("withAuth drives the pool through real credential rotation", () => {
 		const pool = new CredentialPool({ primary: "bad0", pool: ["good"] });
 		const resolver = createPoolResolver(pool);
 		const seen: string[] = [];
-		const result = await withAuth(resolver, async key => {
+		const result = await withAuth(resolver, async (key) => {
 			seen.push(key);
 			if (key !== "good") {
 				const err = new Error("unauthorized") as Error & { status: number };

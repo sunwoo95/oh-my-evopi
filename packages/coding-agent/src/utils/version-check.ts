@@ -86,10 +86,7 @@ export function isNewerPackageVersion(candidateVersion: string, currentVersion: 
 }
 
 function getPrimeAgentDownloadBaseUrl(): string {
-	return (process.env.EVOPI_DOWNLOAD_BASE_URL?.trim() || DEFAULT_EVOPI_DOWNLOAD_BASE_URL).replace(
-		/\/+$/,
-		"",
-	);
+	return (process.env.EVOPI_DOWNLOAD_BASE_URL?.trim() || DEFAULT_EVOPI_DOWNLOAD_BASE_URL).replace(/\/+$/, "");
 }
 
 function normalizeReleaseVersion(version: string): string {

@@ -1,10 +1,4 @@
-import {
-	resetCapabilitiesCache,
-	setCapabilities,
-	setKeybindings,
-	type TUI,
-	visibleWidth,
-} from "@evopi/pi-tui";
+import { resetCapabilitiesCache, setCapabilities, setKeybindings, type TUI, visibleWidth } from "@evopi/pi-tui";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.js";

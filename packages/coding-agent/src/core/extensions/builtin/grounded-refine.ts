@@ -26,16 +26,16 @@
  * it is never registered, so `hasHandlers("session_before_refine")` stays false
  * and the whole hook is short-circuited (agent-session.ts:8229).
  */
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ExtensionFactory,
-	RefinePreparation,
-} from "../types.js";
-import { normalizeRefinementProposal, REFINEMENT_SYSTEM_PROMPT, type RefinementProposal } from "../../refinement/refinement.js";
+
 import { readFileSync } from "node:fs";
 import { completeSimple } from "@evopi/pi-ai";
 import { retryTransientCompletion } from "../../auth-pool/oneshot-retry.js";
+import {
+	normalizeRefinementProposal,
+	REFINEMENT_SYSTEM_PROMPT,
+	type RefinementProposal,
+} from "../../refinement/refinement.js";
+import type { ExtensionAPI, ExtensionContext, ExtensionFactory, RefinePreparation } from "../types.js";
 
 /** External grounding signal, as written to `EVOPI_FEEDBACK_FILE`. */
 export interface GroundedFeedback {
@@ -138,7 +138,9 @@ async function defaultGroundedPlanner(args: {
 		feedbackBlock,
 		"An external grounding signal reports the trajectory above FAILED. Focus the refinement on durable, reusable lessons that would prevent this failure class next time.",
 		`<scope_policy>\n${scopePolicy}\n</scope_policy>`,
-		preparation.instructions ? `<user_refine_instructions>\n${preparation.instructions}\n</user_refine_instructions>` : "",
+		preparation.instructions
+			? `<user_refine_instructions>\n${preparation.instructions}\n</user_refine_instructions>`
+			: "",
 		`<conversation>\n${preparation.conversationText}\n</conversation>`,
 		"Return only JSON edits. If no useful edit is justified, return an empty edits array with a rationale.",
 	]

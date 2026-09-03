@@ -111,8 +111,8 @@ export function stripNewLinePrefixes(lines: string[]): string[] {
 	if (!stripHash && !stripPlus && stats.diffPlusHashPrefixCount === 0) return lines;
 
 	return lines
-		.filter(line => !isReadMetadataLine(line) && !(stripHash && HL_HEADER_RE.test(line)))
-		.map(line => {
+		.filter((line) => !isReadMetadataLine(line) && !(stripHash && HL_HEADER_RE.test(line)))
+		.map((line) => {
 			if (stripHash) return stripLeadingHashlinePrefixes(line);
 			if (stripPlus) return line.replace(DIFF_PLUS_RE, "");
 			if (stats.diffPlusHashPrefixCount > 0 && HL_PREFIX_PLUS_RE.test(line)) {
@@ -132,8 +132,8 @@ export function stripHashlinePrefixes(lines: string[]): string[] {
 	const contentLineCount = stats.nonEmpty - stats.headerCount;
 	if (contentLineCount === 0 || stats.hashPrefixCount !== contentLineCount) return lines;
 	return lines
-		.filter(line => !isReadMetadataLine(line) && !HL_HEADER_RE.test(line))
-		.map(line => stripLeadingHashlinePrefixes(line));
+		.filter((line) => !isReadMetadataLine(line) && !HL_HEADER_RE.test(line))
+		.map((line) => stripLeadingHashlinePrefixes(line));
 }
 
 /**

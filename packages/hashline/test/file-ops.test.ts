@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	computeFileHash,
 	InMemoryFilesystem,
@@ -7,6 +6,7 @@ import {
 	Patcher,
 	parsePatch,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "src/old.ts";
 const DEST = "src/new.ts";

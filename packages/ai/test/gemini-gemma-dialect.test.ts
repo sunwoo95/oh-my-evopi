@@ -18,13 +18,13 @@ function parsedCalls(
 ): { name: string; arguments: Record<string, unknown> }[] {
 	return scan(dialect, text, charByChar)
 		.filter((event): event is Extract<InbandScanEvent, { type: "toolEnd" }> => event.type === "toolEnd")
-		.map(event => ({ name: event.name, arguments: event.arguments }));
+		.map((event) => ({ name: event.name, arguments: event.arguments }));
 }
 
 function visibleText(events: readonly InbandScanEvent[]): string {
 	return events
 		.filter((event): event is Extract<InbandScanEvent, { type: "text" }> => event.type === "text")
-		.map(event => event.text)
+		.map((event) => event.text)
 		.join("");
 }
 
@@ -78,7 +78,7 @@ describe("gemini dialect (Pythonic tool_code)", () => {
 
 		const calls = parsedCalls("gemini", text);
 
-		expect(calls.map(parsed => parsed.name)).toEqual(["read", "write"]);
+		expect(calls.map((parsed) => parsed.name)).toEqual(["read", "write"]);
 		expect(calls[0]!.arguments).toEqual({ path: "src/(foo)\\.ts", count: 2, meta: { emoji: "😀" } });
 		expect(calls[1]!.arguments).toEqual({ path: "out", content: "foo(,bar" });
 	});

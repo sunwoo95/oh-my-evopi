@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { computeFileHash, InMemorySnapshotStore } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "/tmp/__hashline-snapshots__.ts";
 const OTHER = "/tmp/__hashline-other__.ts";
@@ -114,8 +114,8 @@ describe("InMemorySnapshotStore", () => {
 		store.record(OTHER, text);
 
 		const matches = store.findByHash(tag);
-		expect(matches.map(snapshot => snapshot.path).sort()).toEqual([OTHER, PATH].sort());
-		expect(matches.every(snapshot => snapshot.hash === tag)).toBe(true);
+		expect(matches.map((snapshot) => snapshot.path).sort()).toEqual([OTHER, PATH].sort());
+		expect(matches.every((snapshot) => snapshot.hash === tag)).toBe(true);
 		// A tag no retained version carries yields no matches.
 		expect(store.findByHash(tag === "0000" ? "FFFF" : "0000")).toEqual([]);
 	});

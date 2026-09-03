@@ -34,7 +34,7 @@ describe("pure-TS fallbacks (native addon unavailable)", () => {
 	it("mmrRerank falls back to the greedy TS loop and matches the custom-fn TS path", () => {
 		const rng = makeRng(0x1234);
 		const words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
-		const results = Array.from({ length: 30 }, (_v, i) => ({
+		const results = Array.from({ length: 30 }, (_v, _i) => ({
 			content: Array.from({ length: 1 + Math.floor(rng() * 5) }, () => words[Math.floor(rng() * words.length)]).join(
 				" ",
 			),
@@ -77,7 +77,7 @@ describe("pure-TS fallbacks (native addon unavailable)", () => {
 
 		const limit = 10;
 		const hits = searchExactVectorIndex(index, query, limit);
-		expect(hits.map(h => h.id)).toEqual(expected.slice(0, limit).map(e => index.ids[e.row]));
+		expect(hits.map((h) => h.id)).toEqual(expected.slice(0, limit).map((e) => index.ids[e.row]));
 		for (let i = 0; i < limit; i += 1) {
 			expect(hits[i]?.score).toBeCloseTo(expected[i]?.score ?? Number.NaN, 6);
 		}
@@ -119,7 +119,7 @@ describe("pure-TS fallbacks (native addon unavailable)", () => {
 		for (let i = 0; i < count; i += 1) (refGroups.get(find(i)) ?? refGroups.set(find(i), []).get(find(i))!).push(i);
 		const normalize = (groups: number[][]): string =>
 			groups
-				.map(g => [...g].sort((a, b) => a - b).join(","))
+				.map((g) => [...g].sort((a, b) => a - b).join(","))
 				.sort()
 				.join("|");
 

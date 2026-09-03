@@ -188,7 +188,9 @@ describe("ModelRegistry databricks integration", () => {
 		]);
 
 		const workspace = normalizeDatabricksWorkspaceUrl(WORKSPACE);
-		registry.storeDatabricksModelCache(buildDatabricksModelCache(workspace, [{ name: "databricks-claude-sonnet-5" }]));
+		registry.storeDatabricksModelCache(
+			buildDatabricksModelCache(workspace, [{ name: "databricks-claude-sonnet-5" }]),
+		);
 		registry.refresh();
 
 		const optionsAfter = authFlows

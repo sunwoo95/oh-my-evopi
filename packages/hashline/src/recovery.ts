@@ -6,9 +6,10 @@
  * Recovery fails closed when the target changed or became ambiguous. The
  * patcher then returns a mismatch with fresh context instead of guessing.
  */
-import { diffLineRuns } from "./native.js";
+
 import { applyEdits } from "./apply.js";
 import { RECOVERY_EXTERNAL_WARNING, RECOVERY_LINE_REMAP_WARNING, RECOVERY_SESSION_CHAIN_WARNING } from "./messages.js";
+import { diffLineRuns } from "./native.js";
 import type { SnapshotStore } from "./snapshots.js";
 import type { Anchor, ApplyResult, Clipboard, Edit } from "./types.js";
 
@@ -115,7 +116,7 @@ interface AnchorNeighbors {
 function computeAnchorNeighbors(anchorLines: ReadonlySet<number>, lineCount: number): Map<number, AnchorNeighbors> {
 	const sorted = [...anchorLines].sort((a, b) => a - b);
 	const neighbors = new Map<number, AnchorNeighbors>();
-	for (let i = 0; i < sorted.length;) {
+	for (let i = 0; i < sorted.length; ) {
 		let j = i;
 		while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
 		const start = sorted[i];
@@ -298,7 +299,7 @@ function remapEditsToCurrent(previousText: string, currentText: string, edits: r
 
 	if (offsets.length === 0) return null;
 	const firstOffset = offsets[0];
-	if (!offsets.every(offset => offset === firstOffset)) return null;
+	if (!offsets.every((offset) => offset === firstOffset)) return null;
 	return { edits: remapped, offset: firstOffset };
 }
 

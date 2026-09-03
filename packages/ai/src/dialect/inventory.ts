@@ -11,7 +11,7 @@ import type { InbandTool } from "./types.js";
  */
 export function renderToolInventory(tools: readonly InbandTool[]): string {
 	if (tools.length === 0) return "";
-	const declarations = tools.map(tool => {
+	const declarations = tools.map((tool) => {
 		const params = jsonSchemaToTypeScript(toolWireSchema(tool), { style: "harmony" });
 		const lines: string[] = [];
 		const description = tool.description ?? "";

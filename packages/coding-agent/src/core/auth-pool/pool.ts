@@ -103,7 +103,7 @@ export class CredentialPool {
 
 	/** The ordered credential values for a selection (see {@link order}). */
 	select(sessionId?: string, advance = true): string[] {
-		return this.order(sessionId, advance).map(i => this.credentials[i]!);
+		return this.order(sessionId, advance).map((i) => this.credentials[i]!);
 	}
 }
 

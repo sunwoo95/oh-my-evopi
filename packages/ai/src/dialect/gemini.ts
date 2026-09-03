@@ -1,5 +1,5 @@
-import type { Message, ToolCall } from "./compat/types.js";
 import { mintToolCallId, partialSuffixOverlapAny } from "./coercion.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import { FencedThinkingScanner } from "./fenced-thinking.js";
 import dialectPrompt from "./gemini.prompt.js";
 import {
@@ -309,8 +309,8 @@ function parsePyValue(raw: string): unknown {
 function parseList(t: string): unknown[] {
 	const inner = t.slice(1, t.endsWith("]") ? t.length - 1 : t.length);
 	return splitTopLevel(stripComments(inner), ",")
-		.map(part => part.trim())
-		.filter(part => part.length > 0)
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0)
 		.map(parsePyValue);
 }
 
@@ -516,12 +516,12 @@ function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRe
 	const body =
 		calls.length === 1
 			? renderToolCall(calls[0]!, options)
-			: `[${calls.map(call => renderToolCall(call, options)).join(", ")}]`;
+			: `[${calls.map((call) => renderToolCall(call, options)).join(", ")}]`;
 	return `${CODE_OPEN}\n${body}\n${FENCE}`;
 }
 
 function renderToolResults(results: readonly DialectToolResult[]): string {
-	return results.map(result => `${OUTPUT_OPEN}\n${result.text}\n${FENCE}`).join("\n");
+	return results.map((result) => `${OUTPUT_OPEN}\n${result.text}\n${FENCE}`).join("\n");
 }
 
 function renderThinking(text: string): string {
@@ -533,7 +533,7 @@ function renderTranscript(messages: readonly Message[], options: DialectRenderOp
 	if (messages.length === 0) return "";
 	let out = "<bos>";
 	let pendingUserPreamble = "";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "developer") {
 			pendingUserPreamble = joinUserBodies(pendingUserPreamble, messageContentText(message.content));
@@ -572,7 +572,7 @@ function geminiTurn(role: "model" | "user", body: string): string {
 const definition: DialectDefinition = {
 	dialect: "gemini",
 	prompt: dialectPrompt,
-	createScanner: options => new GeminiInbandScanner(options),
+	createScanner: (options) => new GeminiInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

@@ -19,8 +19,9 @@
  * short history of full-file versions so in-session edit chains can still
  * recover against the version a stale tag names.
  */
-import { LRUCache } from "./lru.js";
+
 import { computeFileHash } from "./format.js";
+import { LRUCache } from "./lru.js";
 
 /**
  * One full-file version observed at a point in time. The tag the model sees is
@@ -161,7 +162,7 @@ export class InMemorySnapshotStore extends SnapshotStore {
 		this.#versions = new LRUCache<string, Snapshot[]>({
 			max: options.maxPaths ?? DEFAULT_MAX_PATHS,
 			maxSize: options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES,
-			sizeCalculation: history => {
+			sizeCalculation: (history) => {
 				let total = 1;
 				for (const version of history) total += version.text.length;
 				return total;
@@ -176,12 +177,12 @@ export class InMemorySnapshotStore extends SnapshotStore {
 
 	byHash(path: string, hash: string): Snapshot | null {
 		const history = this.#versions.get(path);
-		return history?.find(version => version.hash === hash) ?? null;
+		return history?.find((version) => version.hash === hash) ?? null;
 	}
 
 	byContent(path: string, fullText: string): Snapshot | null {
 		const history = this.#versions.get(path);
-		return history?.find(version => version.text === fullText) ?? null;
+		return history?.find((version) => version.text === fullText) ?? null;
 	}
 
 	override findByHash(hash: string): Snapshot[] {
@@ -204,7 +205,7 @@ export class InMemorySnapshotStore extends SnapshotStore {
 		// text B onto the stored text A) and let the patcher misresolve which
 		// snapshot the section tag names during recovery or seen-line validation.
 		// See issue #4075.
-		const existing = history.find(version => version.hash === hash && version.text === fullText);
+		const existing = history.find((version) => version.hash === hash && version.text === fullText);
 		if (existing) {
 			// Same content state observed again: refresh recency and promote to
 			// head (it is the current file content), then reuse the tag. Union any
@@ -212,7 +213,7 @@ export class InMemorySnapshotStore extends SnapshotStore {
 			existing.recordedAt = Date.now();
 			mergeSeenLines(existing, seenLines);
 			if (history[0] !== existing) {
-				this.#versions.set(path, [existing, ...history.filter(version => version !== existing)]);
+				this.#versions.set(path, [existing, ...history.filter((version) => version !== existing)]);
 			}
 			return hash;
 		}
@@ -224,7 +225,7 @@ export class InMemorySnapshotStore extends SnapshotStore {
 	}
 
 	recordSeenLines(path: string, hash: string, lines: Iterable<number>): void {
-		const version = this.#versions.get(path)?.find(snapshot => snapshot.hash === hash);
+		const version = this.#versions.get(path)?.find((snapshot) => snapshot.hash === hash);
 		if (version) mergeSeenLines(version, lines);
 	}
 
@@ -235,7 +236,7 @@ export class InMemorySnapshotStore extends SnapshotStore {
 	relocate(from: string, to: string): void {
 		const sourceHistory = this.#versions.get(from);
 		if (sourceHistory === undefined || sourceHistory.length === 0) return;
-		const relocated = sourceHistory.map(version => ({ ...version, path: to }));
+		const relocated = sourceHistory.map((version) => ({ ...version, path: to }));
 		const destHistory = this.#versions.get(to);
 		if (destHistory === undefined) {
 			this.#versions.set(to, relocated);

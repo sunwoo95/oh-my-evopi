@@ -6,9 +6,9 @@
  * validators see the same JSON Schema dialect.
  */
 
-import type { Type } from "./omptype.js";
 import type { Tool, TSchema } from "../types.js";
 import { upgradeJsonSchemaTo202012 } from "./draft.js";
+import type { Type } from "./omptype.js";
 import { stamp } from "./stamps.js";
 
 /**
@@ -33,7 +33,7 @@ function isArkJsonAst(value: unknown): boolean {
 	const required = value.required;
 	return (
 		Array.isArray(required) &&
-		required.some(entry => isSchemaRecord(entry) && typeof entry.key === "string" && "value" in entry)
+		required.some((entry) => isSchemaRecord(entry) && typeof entry.key === "string" && "value" in entry)
 	);
 }
 
@@ -69,8 +69,8 @@ function arkJsonAstToWire(value: unknown): unknown {
 	}
 
 	if (Array.isArray(value)) {
-		if (value.every(item => isSchemaRecord(item) && Object.hasOwn(item, "unit"))) {
-			return { enum: value.map(item => (item as { unit: unknown }).unit) };
+		if (value.every((item) => isSchemaRecord(item) && Object.hasOwn(item, "unit"))) {
+			return { enum: value.map((item) => (item as { unit: unknown }).unit) };
 		}
 		return { anyOf: value.map(arkJsonAstToWire) };
 	}
@@ -208,7 +208,7 @@ function isExclusiveRequiredBranch(branch: unknown): boolean {
 	if (!isSchemaRecord(branch)) return false;
 	if (Object.hasOwn(branch, "type")) return false;
 	if (!Array.isArray(branch.required) || branch.required.length === 0) return false;
-	if (!branch.required.every(name => typeof name === "string" && name.length > 0)) return false;
+	if (!branch.required.every((name) => typeof name === "string" && name.length > 0)) return false;
 	for (const key in branch) {
 		if (!Object.hasOwn(branch, key)) continue;
 		if (key === "required" || key === "description" || key === "title") continue;
@@ -267,7 +267,7 @@ function normalizeArkPropertyComments(node: unknown): void {
 	if (isSchemaRecord(properties)) {
 		const required = Array.isArray(obj.required) ? obj.required : undefined;
 		if (required) {
-			obj.required = required.map(key => (typeof key === "string" ? parseArkObjectKey(key).name : key));
+			obj.required = required.map((key) => (typeof key === "string" ? parseArkObjectKey(key).name : key));
 		}
 		for (const key of Object.keys(properties)) {
 			const parsed = parseArkObjectKey(key);
@@ -549,7 +549,7 @@ function pruneArkUndefinedUnionBranches(node: unknown): void {
 	for (const unionKey of ["anyOf", "oneOf"] as const) {
 		const branches = obj[unionKey];
 		if (!Array.isArray(branches)) continue;
-		const concrete = branches.filter(branch => !isUnconstrainedSchema(branch));
+		const concrete = branches.filter((branch) => !isUnconstrainedSchema(branch));
 		if (concrete.length === branches.length || concrete.length === 0) continue;
 		const only = concrete.length === 1 ? concrete[0] : undefined;
 		if (only !== undefined && isSchemaRecord(only)) {
@@ -583,8 +583,8 @@ function pruneArkUndefinedUnionBranches(node: unknown): void {
  * Convert an ArkType schema into the JSON Schema shape providers consume.
  */
 export function arkToWireSchema(schema: Type): Record<string, unknown> {
-	return stamp(schema, kArkWireSchema, s => {
-		const raw = s.toJsonSchema({ target: "draft-2020-12", fallback: ctx => ctx.base }) as Record<string, unknown>;
+	return stamp(schema, kArkWireSchema, (s) => {
+		const raw = s.toJsonSchema({ target: "draft-2020-12", fallback: (ctx) => ctx.base }) as Record<string, unknown>;
 		delete raw.$schema;
 		pruneArkUndefinedUnionBranches(raw);
 		const upgraded = postProcessJsonSchema(upgradeJsonSchemaTo202012(raw) as Record<string, unknown>);
@@ -601,7 +601,7 @@ export function arkToWireSchema(schema: Type): Record<string, unknown> {
 export function toolWireSchema(tool: Tool): Record<string, unknown> {
 	const params: TSchema = tool.parameters;
 	if (isArkSchema(params)) return arkToWireSchema(params);
-	return stamp(params as Record<string, unknown>, kJsonWireSchema, p => {
+	return stamp(params as Record<string, unknown>, kJsonWireSchema, (p) => {
 		const raw = isArkJsonAst(p) ? arkJsonAstToWire(p) : p;
 		const upgraded = upgradeJsonSchemaTo202012(raw) as Record<string, unknown>;
 		return postProcessJsonSchema(upgraded);
@@ -669,7 +669,7 @@ function stripSchemaDescriptionsInPlace(node: unknown): void {
  * system-prompt/UI rendering.
  */
 export function stripSchemaDescriptions(schema: Record<string, unknown>): Record<string, unknown> {
-	return stamp(schema, kStrippedSchema, source => {
+	return stamp(schema, kStrippedSchema, (source) => {
 		const clone = structuredClone(source);
 		stripSchemaDescriptionsInPlace(clone);
 		return clone;
@@ -685,7 +685,7 @@ export function stripSchemaDescriptions(schema: Record<string, unknown>): Record
  * leaving the original tool objects and the stamped schema cache untouched.
  */
 export function stripToolDescriptions(tools: readonly Tool[]): Tool[] {
-	return tools.map(tool => ({
+	return tools.map((tool) => ({
 		...tool,
 		description: "",
 		parameters: stripSchemaDescriptions(toolWireSchema(tool)),

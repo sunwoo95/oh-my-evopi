@@ -8,6 +8,7 @@
  * (see {@link ./pool.js}) drives.
  */
 import {
+	status as errorStatus,
 	extractHttpStatusFromError,
 	isAccountPolicyError,
 	isAuthRetryableError,
@@ -17,7 +18,6 @@ import {
 	isUsageLimitOutcome,
 	MissingApiKeyError,
 	OAuthError,
-	status as errorStatus,
 } from "./classify.js";
 
 /**
@@ -62,7 +62,7 @@ export async function resolveApiKeyOnce(key: ApiKey | undefined, signal?: AbortS
  */
 export function seedApiKeyResolver(seed: string | undefined, resolver: ApiKeyResolver): ApiKeyResolver {
 	let seedPending = seed !== undefined;
-	return ctx => {
+	return (ctx) => {
 		if (seedPending && ctx.error === undefined) {
 			seedPending = false;
 			return seed;

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { applyEdits, Patch, parsePatch } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 function applyPatch(text: string, diff: string): string {
 	return applyEdits(text, parsePatch(diff).edits).text;
@@ -96,7 +96,7 @@ describe("hashline core — verb header forms", () => {
 		for (const separator of [":", "|"]) {
 			const result = parsePatch(`2${separator}B\n4${separator}D`);
 			expect(applyEdits(FILE, result.edits).text).toBe("a\nB\nc\nD\ne");
-			expect(result.warnings.some(w => /snapshot row.*single-line `PUT N\.=N:`/i.test(w))).toBe(true);
+			expect(result.warnings.some((w) => /snapshot row.*single-line `PUT N\.=N:`/i.test(w))).toBe(true);
 		}
 	});
 	// The xutf incident: a body written as consecutive lines under one number
@@ -114,13 +114,13 @@ describe("hashline core — verb header forms", () => {
 	it("warns when a body row is itself a hunk header written with the payload prefix", () => {
 		const result = parsePatch("PUT >1:\n+inserted();\n+CUT 1266.=1277");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\ninserted();\nCUT 1266.=1277\nb\nc\nd\ne");
-		expect(result.warnings.some(w => /is itself a valid hunk header/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /is itself a valid hunk header/.test(w))).toBe(true);
 	});
 
 	it("recovers a bare range header as an implicit PUT", () => {
 		const result = parsePatch("2.=3:\n+X");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\nX\nd\ne");
-		expect(result.warnings.some(w => /bare `N\.=M:` header/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /bare `N\.=M:` header/.test(w))).toBe(true);
 	});
 
 	it("ignores copied read elisions instead of writing them", () => {
@@ -128,25 +128,25 @@ describe("hashline core — verb header forms", () => {
 			["1:a", "2-3:  omitted() { … }", "4:d", "[…2ln elided; re-read needed ranges with a.ts:2-3]"].join("\n"),
 		);
 		expect(applyEdits(FILE, result.edits).text).toBe(FILE);
-		expect(result.warnings.some(w => /Ignored copied read-output elision/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /Ignored copied read-output elision/.test(w))).toBe(true);
 	});
 
 	it("accepts a harmless trailing colon on bodyless CUT", () => {
 		const result = parsePatch("CUT 2-3:");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\nd\ne");
-		expect(result.warnings.some(w => /Ignored a trailing `:`/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /Ignored a trailing `:`/.test(w))).toBe(true);
 	});
 
 	it("keeps the final hunk when numbered context targets the same exact line", () => {
 		const result = parsePatch("2:b\nPUT 2:\n+B");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\nB\nc\nd\ne");
-		expect(result.warnings.some(w => /kept only the last/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /kept only the last/.test(w))).toBe(true);
 	});
 
 	it("lets a CUT supersede a placeholder PUT over the same exact range", () => {
 		const result = parsePatch("PUT 2-3:\n+// moved block removed\nCUT 2-3 @block");
-		expect(result.edits.some(edit => edit.lineNum === 1)).toBe(false);
-		expect(result.edits.some(edit => edit.kind === "cut" && edit.register === "block")).toBe(true);
+		expect(result.edits.some((edit) => edit.lineNum === 1)).toBe(false);
+		expect(result.edits.some((edit) => edit.kind === "cut" && edit.register === "block")).toBe(true);
 	});
 
 	it("rejects missing colon on body-bearing insert headers", () => {
@@ -159,20 +159,20 @@ describe("hashline body contracts", () => {
 	it("auto-pipes a bare body row while warning", () => {
 		const result = parsePatch("PUT 2-2:\n  hello");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\n  hello\nc\nd\ne");
-		expect(result.warnings.some(w => /Auto-prefixed bare body row/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /Auto-prefixed bare body row/.test(w))).toBe(true);
 	});
 
 	it("strips read-output line number prefixes from auto-piped bare body rows", () => {
 		for (const separator of [":", "|"]) {
 			const result = parsePatch(`PUT 2-2:\n2${separator}hello`);
 			expect(applyEdits(FILE, result.edits).text).toBe("a\nhello\nc\nd\ne");
-			expect(result.warnings.some(w => /Auto-prefixed bare body row/.test(w))).toBe(true);
+			expect(result.warnings.some((w) => /Auto-prefixed bare body row/.test(w))).toBe(true);
 		}
 	});
 	it("preserves `+N:` literal payloads without stripping", () => {
 		const result = parsePatch("PUT 2-2:\n+3:keep");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\n3:keep\nc\nd\ne");
-		expect(result.warnings.some(w => /Auto-prefixed/.test(w))).toBe(false);
+		expect(result.warnings.some((w) => /Auto-prefixed/.test(w))).toBe(false);
 	});
 	it("strips only one N: prefix from bare body rows (preserves nested digits:colon)", () => {
 		// "2:42:hello" → should yield "42:hello", NOT "hello" (recursive would over-strip)
@@ -218,13 +218,13 @@ describe("hashline body contracts", () => {
 	it("auto-pipes a fully bare Markdown bullet body with a warning", () => {
 		const result = parsePatch("PUT 2-2:\n- item\n  - nested");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\n- item\n  - nested\nc\nd\ne");
-		expect(result.warnings.some(w => /bullet row/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /bullet row/.test(w))).toBe(true);
 	});
 
 	it("auto-pipes a bare bullet row next to explicit `+- item` siblings", () => {
 		const result = parsePatch("PUT 2-2:\n+### Fixed\n+- one\n- two");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\n### Fixed\n- one\n- two\nc\nd\ne");
-		expect(result.warnings.some(w => /bullet row/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /bullet row/.test(w))).toBe(true);
 	});
 
 	it("still rejects non-bullet bare `-` rows even in a fully bare body", () => {
@@ -262,7 +262,7 @@ describe("hashline — apply_patch / unified-diff contamination", () => {
 	it("discards unified-diff old rows when explicit new rows follow", () => {
 		const result = parsePatch("PUT 2:\n-b\n+B");
 		expect(applyEdits(FILE, result.edits).text).toBe("a\nB\nc\nd\ne");
-		expect(result.warnings.some(w => /Ignored unified-diff `-old`/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /Ignored unified-diff `-old`/.test(w))).toBe(true);
 	});
 
 	it("treats top-level `+TEXT` as an orphan literal payload", () => {

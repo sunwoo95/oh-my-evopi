@@ -8,7 +8,7 @@ const DIALECT_PROMPT_TOKEN = "{{DIALECT}}";
 
 export function renderToolCatalog(tools: readonly InbandTool[]): string {
 	return tools
-		.map(tool =>
+		.map((tool) =>
 			JSON.stringify({
 				type: "function",
 				function: {

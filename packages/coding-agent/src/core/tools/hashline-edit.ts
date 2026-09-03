@@ -18,9 +18,8 @@
  * turns — the core value of the tag when a read tool mints it — is intentionally
  * out of scope for this gated backport.
  */
-import type { AgentToolResult } from "@evopi/pi-agent-core";
+
 import {
-	computeFileHash,
 	formatHashlineHeader,
 	InMemorySnapshotStore,
 	NodeFilesystem,
@@ -29,6 +28,7 @@ import {
 	Patcher,
 	stripBom,
 } from "@evopi/hashline";
+import type { AgentToolResult } from "@evopi/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.js";
 import { resolveToCwd } from "./path-utils.js";
@@ -134,7 +134,11 @@ export function createHashlineEditToolDefinition(
 			"Apply a structural, line-anchored hashline patch to one or more existing files. Author `[path#TAG]` sections with `PUT`/`CUT`/`REM`/`MV` ops anchored to 1-indexed line numbers of each file's current content. Use for precise multi-line replacements, insertions, deletions, whole-file removal, and moves.",
 		promptSnippet: "Apply line-anchored hashline patches to existing files",
 		parameters: hashlineEditSchema,
-		async execute(_toolCallId, input: HashlineEditToolInput, signal?: AbortSignal): Promise<AgentToolResult<HashlineEditToolDetails | undefined>> {
+		async execute(
+			_toolCallId,
+			input: HashlineEditToolInput,
+			signal?: AbortSignal,
+		): Promise<AgentToolResult<HashlineEditToolDetails | undefined>> {
 			if (signal?.aborted) throw new Error("Operation aborted");
 			const parsed = Patch.parse(input.patch, { cwd });
 			if (parsed.sections.length === 0) {

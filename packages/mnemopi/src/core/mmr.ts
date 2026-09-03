@@ -58,13 +58,13 @@ export function mmrRerank<T extends MmrResult>(
 	if (
 		similarityFn === jaccardSimilarity &&
 		!Number.isNaN(limit) &&
-		sortedResults.every(result => isWellFormed(result.content ?? ""))
+		sortedResults.every((result) => isWellFormed(result.content ?? ""))
 	) {
 		// Pre-lowercase with JS semantics so contextual mappings (Final_Sigma:
 		// "ΟΣ" -> "ος") are applied before the context-insensitive native
 		// lowercase, which is idempotent on already-lowercased text.
-		const contents = sortedResults.map(result => (result.content ?? "").toLowerCase());
-		const scores = Float64Array.from(sortedResults, result => result.score ?? 0);
+		const contents = sortedResults.map((result) => (result.content ?? "").toLowerCase());
+		const scores = Float64Array.from(sortedResults, (result) => result.score ?? 0);
 		// Clamp before the u32 N-API boundary: Infinity or >= 2**32 would
 		// otherwise wrap (ToUint32) and silently return nothing.
 		const nativeLimit = Math.min(limit, sortedResults.length);

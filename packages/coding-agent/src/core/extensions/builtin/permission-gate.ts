@@ -18,9 +18,10 @@
  *
  * The mode maps to the D4 profiles: strict/dev → `block`, eval → `off`.
  */
+
+import { probeSandbox, type SandboxProbeResult } from "../../sandbox-probe.js";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory, ToolCallEvent } from "../types.js";
 import { isToolCallEventType } from "../types.js";
-import { probeSandbox, type SandboxProbeResult } from "../../sandbox-probe.js";
 
 export type PermissionGateMode = "block" | "warn" | "off";
 
@@ -36,7 +37,7 @@ const DANGEROUS_PATTERNS: readonly RegExp[] = [
 
 /** Whether a shell command string matches a destructive pattern the gate guards. */
 export function isDangerousCommand(command: string): boolean {
-	return DANGEROUS_PATTERNS.some(p => p.test(command));
+	return DANGEROUS_PATTERNS.some((p) => p.test(command));
 }
 
 /**

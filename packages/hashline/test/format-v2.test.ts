@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	applyEdits,
 	formatNumberedLines,
@@ -8,6 +7,7 @@ import {
 	splitAddressableFileLines,
 	Tokenizer,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 function applyPatch(text: string, diff: string): string {
 	return applyEdits(text, parsePatch(diff).edits).text;
@@ -54,7 +54,7 @@ describe("hashline format v4", () => {
 	it("treats an empty replace as deletion while still rejecting an empty insert", () => {
 		const result = parsePatch("PUT 2-3:");
 		expect(applyEdits("a\nb\nc\nd", result.edits).text).toBe("a\nd");
-		expect(result.warnings.some(w => /empty `PUT` body as deletion/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /empty `PUT` body as deletion/.test(w))).toBe(true);
 		expect(() => parsePatch("PUT <1:")).toThrow(/promises body rows/);
 	});
 
@@ -72,7 +72,7 @@ describe("hashline format v4", () => {
 		const text = "a\nb\nc";
 		expect(applyPatch(text, "PUT 2-2:\nraw")).toBe("a\nraw\nc");
 		const { warnings } = parsePatch("PUT 2-2:\nraw");
-		expect(warnings.some(w => /Auto-prefixed bare body row/.test(w))).toBe(true);
+		expect(warnings.some((w) => /Auto-prefixed bare body row/.test(w))).toBe(true);
 	});
 
 	it("strips read-output line number prefix from auto-piped bare body rows", () => {
@@ -81,7 +81,7 @@ describe("hashline format v4", () => {
 		// With the fix, the "3:" prefix is stripped, yielding just "text".
 		const { edits, warnings } = parsePatch("PUT 2-2:\n3:replaced");
 		expect(applyEdits(text, edits).text).toBe("a\nreplaced\nc");
-		expect(warnings.some(w => /Auto-prefixed bare body row/.test(w))).toBe(true);
+		expect(warnings.some((w) => /Auto-prefixed bare body row/.test(w))).toBe(true);
 	});
 
 	it("validates insert anchors against file bounds", () => {

@@ -1,7 +1,7 @@
-import { parseJsonWithRepair } from "./compat/json-parse.js";
-import type { Message, ToolCall } from "./compat/types.js";
 import dialectPrompt from "./anthropic.prompt.js";
 import { buildArgShapes, buildStringArgsResolver, mintToolCallId, type ToolArgShape } from "./coercion.js";
+import { parseJsonWithRepair } from "./compat/json-parse.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import {
 	escapeXmlAttr,
 	escapeXmlText,
@@ -557,7 +557,7 @@ function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRe
 
 function renderToolResults(results: readonly DialectToolResult[]): string {
 	const body = results
-		.map(result => {
+		.map((result) => {
 			const tag = result.isError ? "error" : "result";
 			const streamTag = result.isError ? "stderr" : "stdout";
 			return `<${tag}>\n<tool_name>${escapeXmlText(result.name)}</tool_name>\n<${streamTag}>${result.text}</${streamTag}>\n</${tag}>`;
@@ -591,13 +591,13 @@ function renderInvoke(call: ToolCall, shape: ToolArgShape | undefined): string {
 
 function renderInvokes(calls: readonly ToolCall[], tools: NonNullable<DialectRenderOptions["tools"]>): string {
 	const shapes = buildArgShapes(tools);
-	return calls.map(call => renderInvoke(call, shapes.get(call.name))).join("\n");
+	return calls.map((call) => renderInvoke(call, shapes.get(call.name))).join("\n");
 }
 
 const definition: DialectDefinition = {
 	dialect: "anthropic",
 	prompt: dialectPrompt,
-	createScanner: options => new AnthropicInbandScanner(options),
+	createScanner: (options) => new AnthropicInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

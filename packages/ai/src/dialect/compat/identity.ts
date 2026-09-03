@@ -31,7 +31,7 @@ export const FALLBACK_DIALECT: Dialect = "xml";
  */
 export function preferredDialect(modelId: string): Dialect {
 	const id = modelId.toLowerCase();
-	const has = (...needles: string[]): boolean => needles.some(n => id.includes(n));
+	const has = (...needles: string[]): boolean => needles.some((n) => id.includes(n));
 
 	if (has("claude", "anthropic")) return "anthropic";
 	if (has("glm", "zhipu", "chatglm")) return "glm";

@@ -17,7 +17,7 @@ import {
 	type NodeSpan,
 } from "@evopi/pi-natives-loader";
 
-export type { NodeSpan, DiffRun };
+export type { DiffRun, NodeSpan };
 
 export function diffLineRuns(oldText: string, newText: string): DiffRun[] {
 	const native = loadNatives();

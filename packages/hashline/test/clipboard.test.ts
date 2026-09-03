@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	applyEdits,
 	type BlockResolver,
@@ -12,6 +11,7 @@ import {
 	parsePatchStreaming,
 	resolveBlockEdits,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "x.ts";
 
@@ -34,12 +34,12 @@ function taggedPatcher(files: Array<[string, string]>): {
 describe("clipboard parsing", () => {
 	it("lowers `CUT N-M` to a capture plus per-line deletes", () => {
 		const cut = parsePatch("CUT 2-3").edits;
-		expect(cut.map(edit => edit.kind)).toEqual(["cut", "delete", "delete"]);
+		expect(cut.map((edit) => edit.kind)).toEqual(["cut", "delete", "delete"]);
 		expect(cut[0]).toMatchObject({ kind: "cut", range: { start: { line: 2 }, end: { line: 3 } } });
 	});
 
 	it("parses every PUT paste locator, rejecting colons on register PUTs", () => {
-		const cursors = parsePatch("CUT 1\nPUT <2\nPUT >3\nPUT <1\nPUT >$").edits.flatMap(edit =>
+		const cursors = parsePatch("CUT 1\nPUT <2\nPUT >3\nPUT <1\nPUT >$").edits.flatMap((edit) =>
 			edit.kind === "paste" && edit.at.kind === "gap" ? [edit.at.cursor] : [],
 		);
 		expect(cursors).toEqual([
@@ -68,7 +68,7 @@ describe("clipboard parsing", () => {
 
 	it("flushes a trailing bodyless clipboard op in streaming mode", () => {
 		const { edits } = parsePatchStreaming("CUT 1\nPUT >$");
-		expect(edits.map(edit => edit.kind)).toEqual(["cut", "delete", "paste"]);
+		expect(edits.map((edit) => edit.kind)).toEqual(["cut", "delete", "paste"]);
 	});
 });
 
@@ -146,7 +146,7 @@ describe("clipboard block ops", () => {
 	it("expands CUT N* to a span capture plus per-line deletes", () => {
 		const edits = parsePatch("CUT 2*\nPUT >$").edits;
 		const resolved = resolveBlockEdits(edits, "l1\nl2\nl3\nl4", PATH, stubResolver);
-		expect(resolved.map(edit => edit.kind)).toEqual(["cut", "delete", "delete", "paste"]);
+		expect(resolved.map((edit) => edit.kind)).toEqual(["cut", "delete", "delete", "paste"]);
 		expect(resolved[0]).toMatchObject({ kind: "cut", range: { start: { line: 2 }, end: { line: 3 } } });
 	});
 
@@ -159,7 +159,7 @@ describe("clipboard block ops", () => {
 	it("echoes clipboard block resolutions with their op", () => {
 		const seen: string[] = [];
 		resolveBlockEdits(parsePatch("CUT 2*\nPUT >$").edits, "l1\nl2\nl3", PATH, stubResolver, {
-			onResolved: resolution => seen.push(resolution.op),
+			onResolved: (resolution) => seen.push(resolution.op),
 		});
 		expect(seen).toEqual(["cut"]);
 	});
@@ -173,10 +173,10 @@ describe("clipboard block ops", () => {
 	it("lowers an unresolvable PUT >N* to a plain paste with a warning", () => {
 		const warnings: string[] = [];
 		const resolved = resolveBlockEdits(parsePatch("CUT 1\nPUT >2*").edits, "a\nb\nc", PATH, () => null, {
-			onWarning: warning => warnings.push(warning),
+			onWarning: (warning) => warnings.push(warning),
 		});
-		expect(resolved.map(edit => edit.kind)).toEqual(["cut", "delete", "paste"]);
-		expect(warnings.some(warning => warning.includes("`PUT >2*`"))).toBe(true);
+		expect(resolved.map((edit) => edit.kind)).toEqual(["cut", "delete", "paste"]);
+		expect(warnings.some((warning) => warning.includes("`PUT >2*`"))).toBe(true);
 	});
 });
 

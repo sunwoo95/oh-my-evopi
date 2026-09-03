@@ -35,6 +35,16 @@ export interface EvoSettings {
 	enabled?: boolean;
 }
 
+export interface HarnessSettings {
+	// Harness-entry injection selection for the system prompt (B3/M17, R10).
+	// "lexicographic" (default) = prime stock order+truncate. "mmr" = MMR-diversified,
+	// recency-weighted selection via mnemopi. Unset follows the evo gate: evo on → mmr.
+	selection?: "lexicographic" | "mmr";
+	// Character budget per entry kind for injected harness text (cost-aware
+	// injection, D8 backlog concept ③). Only honored on the mmr path.
+	charBudget?: number;
+}
+
 export interface ProviderRetrySettings {
 	timeoutMs?: number; // SDK/provider request timeout in milliseconds
 	maxRetries?: number; // SDK/provider retry attempts
@@ -153,6 +163,7 @@ export interface Settings {
 	compaction?: CompactionSettings;
 	autoRefine?: AutoRefineSettings;
 	evo?: EvoSettings; // evo-layer (grounded-refine) toggle; default off (prime stock behavior)
+	harness?: HarnessSettings; // harness injection selection; default lexicographic (prime stock)
 	agentTraces?: AgentTracesSettings;
 	telemetry?: TelemetrySettings;
 	branchSummary?: BranchSummarySettings;
@@ -921,6 +932,17 @@ export class SettingsManager {
 		if (raw === "on") return true;
 		if (raw === "off") return false;
 		return this.settings.evo?.enabled;
+	}
+
+	/**
+	 * Harness injection selection (B3/M17). Explicit `harness.selection` wins;
+	 * unset follows the evo gate (evo on → mmr). Default = lexicographic (prime
+	 * stock behavior, byte-identical prompt).
+	 */
+	getHarnessSelectionSettings(): { useMmr: boolean; charBudget?: number } {
+		const selection = this.settings.harness?.selection;
+		const useMmr = selection === "mmr" || (selection === undefined && this.resolveEvoEnabled() === true);
+		return { useMmr, charBudget: this.settings.harness?.charBudget };
 	}
 
 	getAutoRefineSettings(): { enabled: boolean; turnInterval: number; compact: boolean; cooldownMs: number } {

@@ -10,7 +10,10 @@
  * `bun:sqlite` and is deferred (Q1: `bun:sqlite` → `node:sqlite`); the MCP
  * server is a v2 concern.
  */
-export { type MmrResult, type SimilarityFn, jaccardSimilarity, mmrRerank } from "./core/mmr.js";
+
+export { hasNatives } from "@evopi/pi-natives-loader";
+export { jaccardSimilarity, type MmrResult, mmrRerank, type SimilarityFn } from "./core/mmr.js";
+export { clusterByCosineSimilarity } from "./core/similarity-clusters.js";
 export {
 	buildExactVectorIndex,
 	type ExactVectorIndex,
@@ -18,6 +21,4 @@ export {
 	searchExactVectorIndex,
 	type VectorIndexRow,
 } from "./core/vector-index.js";
-export { clusterByCosineSimilarity } from "./core/similarity-clusters.js";
 export { cosineSimilarity } from "./core/vector-math.js";
-export { hasNatives } from "@evopi/pi-natives-loader";

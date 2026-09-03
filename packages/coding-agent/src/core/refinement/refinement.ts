@@ -435,6 +435,13 @@ export function formatHarnessStateForPrompt(
 		includeIpythonExamples?: boolean;
 		includeShellExamples?: boolean;
 		includeRefineExamples?: boolean;
+		/**
+		 * Optional selector replacing the default lexicographic order+truncate
+		 * (B3/M17: MMR + budget selection behind the evo gate). Receives the
+		 * lexicographically sorted entries of a kind; returns the ordered subset
+		 * to render (length ≤ limit).
+		 */
+		selectEntries?: (kind: RefinementKind, entries: HarnessEntry[], limit: number) => HarnessEntry[];
 	} = {},
 ): string {
 	const maxEntriesPerKind = options.maxEntriesPerKind ?? DEFAULT_OVERVIEW_ENTRY_LIMIT;
@@ -468,6 +475,9 @@ export function formatHarnessStateForPrompt(
 			[a.path, a.title, a.id].join("\0").localeCompare([b.path, b.title, b.id].join("\0")),
 		);
 		totalEntries += entries.length;
+		const selectedEntries = options.selectEntries
+			? options.selectEntries(kind, entries, maxEntriesPerKind).slice(0, maxEntriesPerKind)
+			: entries.slice(0, maxEntriesPerKind);
 		// Render subagent specs as a task-shaped roster the model can match against — the
 		// analogue of Claude Code's agent-type menu — rather than a bare count. In
 		// REPL sessions, include the native `rlm` invocation hint.
@@ -478,7 +488,7 @@ export function formatHarnessStateForPrompt(
 		} else {
 			lines.push(`${kind}: ${entries.length}`);
 		}
-		for (const entry of entries.slice(0, maxEntriesPerKind)) {
+		for (const entry of selectedEntries) {
 			const argumentsText =
 				entry.kind === "skill" && Object.keys(entry.arguments).length > 0
 					? ` args=${compactText(JSON.stringify(entry.arguments), maxContentLength)}`
@@ -494,7 +504,7 @@ export function formatHarnessStateForPrompt(
 				)}`,
 			);
 		}
-		const overflow = entries.length - Math.min(entries.length, maxEntriesPerKind);
+		const overflow = entries.length - selectedEntries.length;
 		if (overflow > 0) {
 			lines.push(`- +${overflow} more ${kind} entries`);
 		}

@@ -1,13 +1,5 @@
 import type { AgentMessage } from "@evopi/pi-agent-core";
-import {
-	Container,
-	Markdown,
-	type MarkdownTheme,
-	Spacer,
-	Text,
-	truncateToWidth,
-	visibleWidth,
-} from "@evopi/pi-tui";
+import { Container, Markdown, type MarkdownTheme, Spacer, Text, truncateToWidth, visibleWidth } from "@evopi/pi-tui";
 import { GOAL_CONTEXT_CUSTOM_TYPE, type GoalContextDetails } from "../../../core/goals.js";
 import {
 	type CustomMessage,

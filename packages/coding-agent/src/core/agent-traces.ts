@@ -6,8 +6,8 @@ import { appendRotatingLog, getAgentTracesLogPath, getSessionsDir, VERSION } fro
 import { readFirstLineSync } from "../utils/file-lines.js";
 import type { AuthStorage } from "./auth-storage.js";
 import {
-	loadPrimeCliConfig,
 	EVOPI_TRACES_PROVIDER_ID,
+	loadPrimeCliConfig,
 	PRIME_INFERENCE_PROVIDER_ID,
 	resolvePrimeAgentTracesBaseUrl,
 } from "./prime-inference-auth.js";

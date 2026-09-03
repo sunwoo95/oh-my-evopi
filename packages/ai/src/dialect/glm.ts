@@ -1,4 +1,3 @@
-import type { Message, ToolCall } from "./compat/types.js";
 import {
 	buildArgShapes,
 	buildStringArgsResolver,
@@ -8,6 +7,7 @@ import {
 	partialSuffixOverlapAny,
 	type ToolArgShape,
 } from "./coercion.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import dialectPrompt from "./glm.prompt.js";
 import {
 	assistantTranscriptParts,
@@ -528,7 +528,7 @@ function glmInvocation(call: ToolCall, shape: ToolArgShape | undefined): string 
 
 function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRenderOptions = {}): string {
 	const shapes = buildArgShapes(options.tools);
-	return calls.map(call => glmInvocation(call, shapes.get(call.name))).join("\n");
+	return calls.map((call) => glmInvocation(call, shapes.get(call.name))).join("\n");
 }
 
 function renderToolResults(results: readonly DialectToolResult[]): string {
@@ -543,7 +543,7 @@ function renderThinking(text: string): string {
 function renderTranscript(messages: readonly Message[], options: DialectRenderOptions = {}): string {
 	if (messages.length === 0) return "";
 	let out = "[gMASK]<sop>";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);
@@ -568,7 +568,7 @@ function renderTranscript(messages: readonly Message[], options: DialectRenderOp
 const definition: DialectDefinition = {
 	dialect: "glm",
 	prompt: dialectPrompt,
-	createScanner: options => new GLMInbandScanner(options),
+	createScanner: (options) => new GLMInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

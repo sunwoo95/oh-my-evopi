@@ -1,10 +1,10 @@
-import type { Message, ToolCall } from "./compat/types.js";
 import {
 	ANTHROPIC_THINKING_TAG_PREFIXES,
 	AnthropicInbandScanner,
 	type AnthropicInbandScannerConfig,
 } from "./anthropic.js";
 import { buildArgShapes, type ToolArgShape } from "./coercion.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import dialectPrompt from "./minimax.prompt.js";
 import {
 	escapeXmlAttr,
@@ -44,7 +44,7 @@ function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRe
 
 function renderToolResults(results: readonly DialectToolResult[]): string {
 	const body = results
-		.map(result => {
+		.map((result) => {
 			const tag = result.isError ? "error" : "result";
 			const streamTag = result.isError ? "stderr" : "stdout";
 			return `<${tag}>\n<tool_name>${escapeXmlText(result.name)}</tool_name>\n<${streamTag}>${result.text}</${streamTag}>\n</${tag}>`;
@@ -78,13 +78,13 @@ function renderInvoke(call: ToolCall, shape: ToolArgShape | undefined): string {
 
 function renderInvokes(calls: readonly ToolCall[], tools: NonNullable<DialectRenderOptions["tools"]>): string {
 	const shapes = buildArgShapes(tools);
-	return calls.map(call => renderInvoke(call, shapes.get(call.name))).join("\n");
+	return calls.map((call) => renderInvoke(call, shapes.get(call.name))).join("\n");
 }
 
 const definition: DialectDefinition = {
 	dialect: "minimax",
 	prompt: dialectPrompt,
-	createScanner: options => new AnthropicInbandScanner(options, MINIMAX_SCANNER_CONFIG),
+	createScanner: (options) => new AnthropicInbandScanner(options, MINIMAX_SCANNER_CONFIG),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

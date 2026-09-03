@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { applyEdits, InMemorySnapshotStore, parsePatch, Recovery } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 /**
  * Applies with a code path, so the tree-sitter probe can judge whether an
@@ -30,7 +30,7 @@ function applyProse(text: string, diff: string): { text: string; warnings: strin
 }
 
 function boundaryRepairWarnings(warnings: readonly string[]): string[] {
-	return warnings.filter(warning => /Auto-repaired (?:a )?replacement boundar/.test(warning));
+	return warnings.filter((warning) => /Auto-repaired (?:a )?replacement boundar/.test(warning));
 }
 
 describe("boundary-balance repair", () => {
@@ -64,13 +64,13 @@ describe("boundary-balance repair", () => {
 				"    }",
 			].join("\n"),
 		);
-		expect(warnings.some(w => /Auto-indented a replacement body/.test(w))).toBe(true);
+		expect(warnings.some((w) => /Auto-indented a replacement body/.test(w))).toBe(true);
 	});
 	it("preserves intentional indentation-only replacements", () => {
 		const file = ["    first();", "    second();"].join("\n");
 		const { text, warnings } = apply(file, "PUT 1.=2:\n+first();\n+second();");
 		expect(text).toBe("first();\nsecond();");
-		expect(warnings.some(w => /Auto-indented a replacement body/.test(w))).toBe(false);
+		expect(warnings.some((w) => /Auto-indented a replacement body/.test(w))).toBe(false);
 	});
 
 	it("retains a swallowed opening comment fence when syntax and indentation prove the boundary", () => {
@@ -126,8 +126,8 @@ describe("boundary-balance repair", () => {
 		].join("\n");
 		const { text, warnings } = applyTsx(file, diff);
 		// Exactly one `</>` and one `);` survive — no doubling.
-		expect(text.split("\n").filter(l => l.trim() === "</>")).toHaveLength(1);
-		expect(text.split("\n").filter(l => l.trim() === ");")).toHaveLength(1);
+		expect(text.split("\n").filter((l) => l.trim() === "</>")).toHaveLength(1);
+		expect(text.split("\n").filter((l) => l.trim() === ");")).toHaveLength(1);
 		expect(text.endsWith("\t\t</>\n\t);\n};")).toBe(true);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
@@ -184,7 +184,7 @@ describe("boundary-balance repair", () => {
 				"}",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line === "\tplanRender(")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "\tplanRender(")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -225,7 +225,7 @@ describe("boundary-balance repair", () => {
 		const { text, warnings } = apply(file, diff);
 
 		expect(text).toBe(["class Foo {", "\tok();", "}"].join("\n"));
-		expect(text.split("\n").filter(line => line === "}")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "}")).toHaveLength(1);
 		expect(warnings).toHaveLength(0);
 	});
 
@@ -254,8 +254,8 @@ describe("boundary-balance repair", () => {
 				"\tprint_status()",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line === "func _cmd_travel_homeworld():")).toHaveLength(1);
-		expect(text.split("\n").filter(line => line === "\tprint_status()")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "func _cmd_travel_homeworld():")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "\tprint_status()")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -355,7 +355,7 @@ describe("boundary-balance repair", () => {
 		const { text, warnings } = applyTsx(file, diff);
 
 		expect(text).toBe(["const view = (", "  <section>", "    <New />", "  </section>", ");"].join("\n"));
-		expect(text.split("\n").filter(line => line === "  </section>")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "  </section>")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -365,7 +365,7 @@ describe("boundary-balance repair", () => {
 		const { text, warnings } = applyTsx(file, diff);
 
 		expect(text).toBe(["const view = (", "<Foo>", "<Foo value={a > b} />", "</Foo>", ");"].join("\n"));
-		expect(text.split("\n").filter(line => line === "</Foo>")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "</Foo>")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -385,7 +385,7 @@ describe("boundary-balance repair", () => {
 				");",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line.trim() === "</section>")).toHaveLength(2);
+		expect(text.split("\n").filter((line) => line.trim() === "</section>")).toHaveLength(2);
 		expect(warnings).toHaveLength(0);
 	});
 
@@ -407,7 +407,7 @@ describe("boundary-balance repair", () => {
 				");",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line.trim() === "</section>")).toHaveLength(2);
+		expect(text.split("\n").filter((line) => line.trim() === "</section>")).toHaveLength(2);
 		expect(warnings).toHaveLength(0);
 	});
 
@@ -767,7 +767,7 @@ describe("boundary-balance repair", () => {
 		const diff = ["PUT 3-3:", "+\t\treturn;", "+\t}"].join("\n");
 		const { text, warnings } = applyRust(file, diff);
 		expect(text).toBe(["fn f() {", "\tif a {", "\t\treturn;", "\t}", "\tdone();", "}"].join("\n"));
-		expect(warnings.filter(warning => /mid-block/.test(warning))).toHaveLength(0);
+		expect(warnings.filter((warning) => /mid-block/.test(warning))).toHaveLength(0);
 	});
 	// Symmetric invalid→valid repair: the file already carries a surplus
 	// opener, so replacing that opener line with a plain statement rebalances
@@ -778,7 +778,7 @@ describe("boundary-balance repair", () => {
 		const diff = ["PUT 2-2:", "+\tprepare();"].join("\n");
 		const { text, warnings } = applyRust(file, diff);
 		expect(text).toBe(["fn f() {", "\tprepare();", "\t\twork();", "}"].join("\n"));
-		expect(warnings.filter(warning => /mid-block/.test(warning))).toHaveLength(0);
+		expect(warnings.filter((warning) => /mid-block/.test(warning))).toHaveLength(0);
 	});
 	// The balance scanner counts regex-literal braces naively; that miscount
 	// may only ever suppress, never trigger the mid-block warning. Replacing
@@ -789,7 +789,7 @@ describe("boundary-balance repair", () => {
 		const diff = ["PUT 1-1:", "+const open = /x/;"].join("\n");
 		const { text, warnings } = apply(file, diff);
 		expect(text).toBe(["const open = /x/;", "const close = /}/;"].join("\n"));
-		expect(warnings.filter(warning => /mid-block/.test(warning))).toHaveLength(0);
+		expect(warnings.filter((warning) => /mid-block/.test(warning))).toHaveLength(0);
 	});
 
 	// Same regex pair embedded in a real function: the enclosing `}` below is
@@ -801,7 +801,7 @@ describe("boundary-balance repair", () => {
 		const diff = ["PUT 2-2:", "+\tconst open = /x/;"].join("\n");
 		const { text, warnings } = apply(file, diff);
 		expect(text).toBe(["function setup() {", "\tconst open = /x/;", "\tconst close = /}/;", "}"].join("\n"));
-		expect(warnings.filter(warning => /mid-block/.test(warning))).toHaveLength(0);
+		expect(warnings.filter((warning) => /mid-block/.test(warning))).toHaveLength(0);
 	});
 	// The parser's veto in prose: Markdown parses with or without the literal
 	// `}`, so the leading-closer spare must not fire and — since nothing is
@@ -909,7 +909,7 @@ describe("boundary-balance repair through stale-snapshot recovery", () => {
 
 		expect(recovered).not.toBeNull();
 		// Exactly one `});` — the duplicate was absorbed during recovery.
-		expect(recovered?.text.split("\n").filter(l => l === "});")).toHaveLength(1);
+		expect(recovered?.text.split("\n").filter((l) => l === "});")).toHaveLength(1);
 		expect(recovered?.text).toContain("setup2();");
 		expect(recovered?.text).toContain("run2();");
 		// The unrelated drift on the live file survives the merge.
@@ -955,7 +955,7 @@ describe("rust lifetime delimiter counting (the extension() incident)", () => {
 		// Applied as authored — advisory, not repair.
 		expect(text).toContain("\t\tself.into()");
 		expect(text).not.toContain("pub const fn extension");
-		expect(warnings.some(w => /introduced a syntax error/.test(w))).toBe(true);
+		expect(warnings.some((w) => /introduced a syntax error/.test(w))).toBe(true);
 	});
 
 	it("does not resurrect a swallowed signature when body indentation matches", () => {
@@ -1090,7 +1090,7 @@ describe("single-line annotation echoes (the #[napi] doc-restoration incident)",
 				"pub fn structured_patch_hunks() {}",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line === "#[napi]")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "#[napi]")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -1117,7 +1117,7 @@ describe("single-line annotation echoes (the #[napi] doc-restoration incident)",
 				"pub fn wrap_text_with_ansi() {}",
 			].join("\n"),
 		);
-		expect(text.split("\n").filter(line => line === "#[napi]")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "#[napi]")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -1128,7 +1128,7 @@ describe("single-line annotation echoes (the #[napi] doc-restoration incident)",
 		const diff = ["PUT 2.=2:", "+#[napi]", "+/// New summary."].join("\n");
 		const { text, warnings } = applyRust(file, diff);
 		expect(text).toBe(["#[napi]", "/// New summary.", "pub fn f() {}"].join("\n"));
-		expect(text.split("\n").filter(line => line === "#[napi]")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "#[napi]")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 
@@ -1147,7 +1147,7 @@ describe("single-line annotation echoes (the #[napi] doc-restoration incident)",
 		const diff = ["PUT 1.=1:", "+/** Creates request-scoped services. */", "+@Injectable()"].join("\n");
 		const { text, warnings } = apply(file, diff);
 		expect(text).toBe(["/** Creates request-scoped services. */", "@Injectable()", "class Service {}"].join("\n"));
-		expect(text.split("\n").filter(line => line === "@Injectable()")).toHaveLength(1);
+		expect(text.split("\n").filter((line) => line === "@Injectable()")).toHaveLength(1);
 		expect(boundaryRepairWarnings(warnings)).toHaveLength(1);
 	});
 

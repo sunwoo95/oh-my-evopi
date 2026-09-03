@@ -43,11 +43,10 @@ function probeBubblewrap(): SandboxProbeResult {
 
 	// 2) Functional test: a minimal namespace that runs `true`. This is what
 	// fails inside a container without unprivileged-userns support.
-	const functional = spawnSync(
-		"bwrap",
-		["--ro-bind", "/", "/", "--unshare-user", "--die-with-parent", "true"],
-		{ encoding: "utf-8", timeout: 5000 },
-	);
+	const functional = spawnSync("bwrap", ["--ro-bind", "/", "/", "--unshare-user", "--die-with-parent", "true"], {
+		encoding: "utf-8",
+		timeout: 5000,
+	});
 	if (functional.error || functional.status !== 0) {
 		const stderr = (functional.stderr || "").trim();
 		const noUserns = /non-privileged user namespaces|create new namespace/i.test(stderr);

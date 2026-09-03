@@ -1,7 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	buildFeedbackBlock,
+	createGroundedRefineExtension,
+	type GroundedFeedback,
+	isFailureStatus,
+	readFeedbackFromEnv,
+} from "../src/core/extensions/builtin/grounded-refine.js";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -10,13 +17,6 @@ import type {
 	SessionBeforeRefineResult,
 } from "../src/core/extensions/types.js";
 import type { RefinementProposal } from "../src/core/refinement/refinement.js";
-import {
-	buildFeedbackBlock,
-	createGroundedRefineExtension,
-	type GroundedFeedback,
-	isFailureStatus,
-	readFeedbackFromEnv,
-} from "../src/core/extensions/builtin/grounded-refine.js";
 
 // --- Minimal mock session: capture the handler the factory registers, then
 // fire it the same way ExtensionRunner.emit does for session_before_refine. ---
@@ -138,7 +138,7 @@ describe("grounded-refine hook — D1 trigger + D4 injection", () => {
 		const notices: Array<{ message: string; type: string }> = [];
 		createGroundedRefineExtension({ readFeedback: feedback({ task: "T", status: "fail" }) })(api);
 		expect(await fireRefine(handlers, makeCtx({ model: undefined, notices }))).toBeUndefined();
-		expect(notices.some(n => n.type === "warning" && /no active model/.test(n.message))).toBe(true);
+		expect(notices.some((n) => n.type === "warning" && /no active model/.test(n.message))).toBe(true);
 	});
 });
 

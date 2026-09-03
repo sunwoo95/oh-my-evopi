@@ -1,5 +1,5 @@
-import type { Message, ToolCall } from "./compat/types.js";
 import { mintToolCallId, partialSuffixOverlap, partialSuffixOverlapAny } from "./coercion.js";
+import type { Message, ToolCall } from "./compat/types.js";
 import dialectPrompt from "./gemma.prompt.js";
 import { assistantTranscriptParts, collectToolResultRun, messageContentText } from "./rendering.js";
 import type {
@@ -192,8 +192,8 @@ function parseGemmaValue(raw: string): unknown {
 		const end = matchDelim(t, 0, "[", "]");
 		const inner = end === -1 ? t.slice(1) : t.slice(1, end);
 		return splitTopLevel(inner, ",")
-			.map(part => part.trim())
-			.filter(part => part.length > 0)
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0)
 			.map(parseGemmaValue);
 	}
 	if (t.startsWith("{")) {
@@ -300,13 +300,13 @@ function renderToolCall(call: ToolCall, _options: DialectRenderOptions = {}): st
 }
 
 function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRenderOptions = {}): string {
-	return calls.map(call => renderToolCall(call, options)).join("");
+	return calls.map((call) => renderToolCall(call, options)).join("");
 }
 
 function renderToolResults(results: readonly DialectToolResult[], _options: DialectRenderOptions = {}): string {
 	return results
 		.map(
-			result =>
+			(result) =>
 				`${RESPONSE_OPEN}response:${result.name}{output:${gemmaValue(parseMaybeJson(result.text))}}${RESPONSE_CLOSE}`,
 		)
 		.join("");
@@ -320,7 +320,7 @@ function renderThinking(text: string): string {
 function renderTranscript(messages: readonly Message[], options: DialectRenderOptions = {}): string {
 	if (messages.length === 0) return "";
 	let out = "<bos>";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);
@@ -376,7 +376,7 @@ function gemmaTurn(role: "model" | "system" | "user", body: string): string {
 const definition: DialectDefinition = {
 	dialect: "gemma",
 	prompt: dialectPrompt,
-	createScanner: options => new GemmaInbandScanner(options),
+	createScanner: (options) => new GemmaInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

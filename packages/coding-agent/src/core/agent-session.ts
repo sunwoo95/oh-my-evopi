@@ -193,10 +193,12 @@ import {
 	type AutoRefineReview,
 	appendGlobalRefinement,
 	applyRefinementProposal,
+	createMmrHarnessSelector,
 	generateRefinementId,
 	getGlobalHarnessStateDir,
 	getLocalHarnessStateDir,
 	getRefinementHistory,
+	type HarnessEntrySelector,
 	type HarnessState,
 	inferRefinementResultScope,
 	loadGlobalRefinementHistory,
@@ -4391,6 +4393,7 @@ export class AgentSession {
 			rlmDepth: this._rlmDepth,
 			rlmParentAgent: this._rlmParentAgent,
 			harnessState: this._loadMergedHarnessState(),
+			harnessSelector: this._resolveHarnessSelector(),
 			genericMcpServers: this._mcpManager?.getEnabledGenericServers(),
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
@@ -8028,6 +8031,17 @@ export class AgentSession {
 	}
 
 	/** Global harness state overlaid with this session's local state, when persisted. */
+	/**
+	 * Harness injection selector (B3/M17): MMR+budget selection when the evo
+	 * gate (or `harness.selection: "mmr"`) is on; undefined otherwise so the
+	 * system prompt stays byte-identical to prime stock behavior.
+	 */
+	private _resolveHarnessSelector(): HarnessEntrySelector | undefined {
+		const { useMmr, charBudget } = this.settingsManager.getHarnessSelectionSettings();
+		if (!useMmr) return undefined;
+		return createMmrHarnessSelector({ charBudget });
+	}
+
 	private _loadMergedHarnessState(): HarnessState {
 		const localHarnessStateDir = this._localHarnessStateDir();
 		return mergeHarnessStates(

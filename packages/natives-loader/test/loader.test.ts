@@ -48,7 +48,7 @@ describe.skipIf(!onLinuxX64)("natives-loader / linux-x64 6-function smoke", () =
 		const res = n.vectorIndexTopK(matrix, 2, Float64Array.from([1, 0]), 2);
 		expect(Array.from(res.indices)).toEqual([0, 2]);
 		expect(res.scores[0]).toBeCloseTo(1, 5);
-		expect(res.scores[1]).toBeCloseTo(0.7071, 3);
+		expect(res.scores[1]).toBeCloseTo(Math.SQRT1_2, 3);
 	});
 
 	it("diffLineRuns reports the changed run", () => {
@@ -70,8 +70,6 @@ describe.skipIf(!onLinuxX64)("natives-loader / linux-x64 6-function smoke", () =
 
 	it("enclosingBlockBoundaries accepts the ranges contract", () => {
 		const n = loadNatives()!;
-		expect(
-			n.enclosingBlockBoundaries({ code: "const x = 1;", lang: "javascript", ranges: [] }),
-		).toEqual([]);
+		expect(n.enclosingBlockBoundaries({ code: "const x = 1;", lang: "javascript", ranges: [] })).toEqual([]);
 	});
 });

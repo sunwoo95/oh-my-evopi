@@ -298,9 +298,7 @@ async function runPackage(args: string[]): Promise<PublicCommandResult> {
 		if (
 			rest.some((arg) => arg === "--self" || arg === "--extensions" || arg === "--extension" || arg === "--force")
 		) {
-			return fail(
-				'Package updates accept only an optional source. Use "evopi update --force" to update evopi.',
-			);
+			return fail('Package updates accept only an optional source. Use "evopi update --force" to update evopi.');
 		}
 		if (rest.length > 1) {
 			return fail(`Usage: ${APP_NAME} package update [source]`);

@@ -405,7 +405,7 @@ export const EMPTY_PASTE = `Nothing to paste: no unlabeled \`CUT\` precedes this
 /** Named paste read a register that holds nothing; a gap paste applies as empty. */
 export function emptyRegisterPasteWarning(name: string, known: readonly string[]): string {
 	const base = `\`@${name}\` was empty — no \`CUT … @${name}\` precedes this op in this call and no persisted register has that name — so nothing was pasted.`;
-	return known.length === 0 ? base : `${base} Available registers: ${known.map(k => `\`@${k}\``).join(", ")}.`;
+	return known.length === 0 ? base : `${base} Available registers: ${known.map((k) => `\`@${k}\``).join(", ")}.`;
 }
 
 /**
@@ -418,7 +418,7 @@ export function emptyRegisterSpanPasteMessage(name: string, known: readonly stri
 		`\`@${name}\` is empty — no \`CUT … @${name}\` precedes this op in this call and no persisted register ` +
 		`has that name — so pasting it over a range would delete those lines and write nothing back. ` +
 		`Capture the register first (\`CUT … @${name}\`), or use \`CUT\` if deleting the range is what you meant.`;
-	return known.length === 0 ? base : `${base} Available registers: ${known.map(k => `\`@${k}\``).join(", ")}.`;
+	return known.length === 0 ? base : `${base} Available registers: ${known.map((k) => `\`@${k}\``).join(", ")}.`;
 }
 
 /** Unlabeled paste with two or more unlabeled cuts pending. */
@@ -621,10 +621,10 @@ export type BlockOp = "replace" | "insert_after" | "cut" | "paste_after";
 
 /** Display forms per deferred-block op: block keyword, trailing colon, and single-line plain form. */
 const BLOCK_OP_FORMS: Record<BlockOp, { form: (line: number) => string; plain: (line: number) => string }> = {
-	replace: { form: line => `PUT ${line}*:`, plain: line => `PUT ${line}:` },
-	insert_after: { form: line => `PUT >${line}*:`, plain: line => `PUT >${line}:` },
-	cut: { form: line => `CUT ${line}*`, plain: line => `CUT ${line}` },
-	paste_after: { form: line => `PUT >${line}*`, plain: line => `PUT >${line}` },
+	replace: { form: (line) => `PUT ${line}*:`, plain: (line) => `PUT ${line}:` },
+	insert_after: { form: (line) => `PUT >${line}*:`, plain: (line) => `PUT >${line}:` },
+	cut: { form: (line) => `CUT ${line}*`, plain: (line) => `CUT ${line}` },
+	paste_after: { form: (line) => `PUT >${line}*`, plain: (line) => `PUT >${line}` },
 };
 
 /**

@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -14,6 +13,7 @@ import {
 	Patcher,
 	type WriteResult,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "a.ts";
 
@@ -190,7 +190,7 @@ describe("Patcher snapshot tag stays honest across a write-time content transfor
 
 		// The drift is surfaced, not swallowed: silent divergence is exactly
 		// what turned a one-line edit into unexplained whole-file corruption.
-		expect(section.warnings.some(w => w.includes(PATH) && /reformatted it on save/.test(w))).toBe(true);
+		expect(section.warnings.some((w) => w.includes(PATH) && /reformatted it on save/.test(w))).toBe(true);
 
 		// A follow-up edit anchored on the returned tag must succeed against
 		// the real (drifted) file instead of failing a stale-tag mismatch.
@@ -442,7 +442,7 @@ describe("Patcher tag-based path recovery", () => {
 		// The edit landed on the real nested file; the result reports its full path.
 		expect(section?.path).toBe(NESTED);
 		expect(fs.get(NESTED)).toBe("one\nTWO\nthree\n");
-		expect(section?.warnings.some(warning => warning.includes("does not exist") && warning.includes(NESTED))).toBe(
+		expect(section?.warnings.some((warning) => warning.includes("does not exist") && warning.includes(NESTED))).toBe(
 			true,
 		);
 	});

@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	type BlockResolution,
 	type BlockResolver,
@@ -13,6 +12,7 @@ import {
 	parsePatch,
 	resolveBlockEdits,
 } from "@evopi/hashline";
+import { describe, expect, it } from "vitest";
 
 const PATH = "x.ts";
 
@@ -24,7 +24,7 @@ const stubResolver: BlockResolver = ({ line }): BlockSpan => ({ start: line, end
 
 /** Strip parser/transform bookkeeping that `applyEdits` re-derives anyway. */
 function normalizeEdits(edits: readonly Edit[]): unknown[] {
-	return edits.map(edit => {
+	return edits.map((edit) => {
 		if (edit.kind === "insert") return { kind: edit.kind, cursor: edit.cursor, text: edit.text, mode: edit.mode };
 		if (edit.kind === "delete") return { kind: edit.kind, anchor: edit.anchor };
 		return edit;
@@ -45,14 +45,14 @@ describe("PUT N*: parsing", () => {
 
 	it("still parses a literal `SWAP N.=M:` range (distinct from `PUT N*:`)", () => {
 		const { edits } = parsePatch("PUT 2-3:\n+A");
-		expect(edits.some(edit => edit.kind === "block")).toBe(false);
-		expect(edits.some(edit => edit.kind === "delete")).toBe(true);
+		expect(edits.some((edit) => edit.kind === "block")).toBe(false);
+		expect(edits.some((edit) => edit.kind === "delete")).toBe(true);
 	});
 
 	it("treats a `PUT N*:` hunk with no body row as a delete-only block edit", () => {
 		const result = parsePatch("PUT 2*:");
 		expect(result.edits).toEqual([{ kind: "block", anchor: { line: 2 }, payloads: [], lineNum: 1, index: 0 }]);
-		expect(result.warnings.some(w => /empty `PUT` body as deletion/.test(w))).toBe(true);
+		expect(result.warnings.some((w) => /empty `PUT` body as deletion/.test(w))).toBe(true);
 	});
 });
 
@@ -62,7 +62,7 @@ describe("resolveBlockEdits", () => {
 		const resolved = resolveBlockEdits(blockEdits, "ignored", PATH, stubResolver);
 		const replaceEdits = parsePatch("PUT 2-3:\n+A\n+B").edits;
 
-		expect(resolved.some(edit => edit.kind === "block")).toBe(false);
+		expect(resolved.some((edit) => edit.kind === "block")).toBe(false);
 		expect(normalizeEdits(resolved)).toEqual(normalizeEdits(replaceEdits));
 	});
 
@@ -146,10 +146,10 @@ describe("resolveBlockEdits", () => {
 		const seen: BlockResolution[] = [];
 		// stubResolver maps line N → span [N, N+1].
 		resolveBlockEdits(parsePatch("PUT 2*:\n+A\n+B").edits, "ignored", PATH, stubResolver, {
-			onResolved: resolution => seen.push(resolution),
+			onResolved: (resolution) => seen.push(resolution),
 		});
 		resolveBlockEdits(parsePatch("CUT 5*").edits, "ignored", PATH, stubResolver, {
-			onResolved: resolution => seen.push(resolution),
+			onResolved: (resolution) => seen.push(resolution),
 		});
 
 		expect(seen).toEqual([
@@ -162,7 +162,7 @@ describe("resolveBlockEdits", () => {
 		const seen: BlockResolution[] = [];
 		resolveBlockEdits(parsePatch("PUT 2*:\n+X").edits, "ignored", PATH, () => null, {
 			onUnresolved: "drop",
-			onResolved: resolution => seen.push(resolution),
+			onResolved: (resolution) => seen.push(resolution),
 		});
 		expect(seen).toHaveLength(0);
 	});
@@ -274,7 +274,7 @@ describe("Patcher with a block resolver", () => {
 
 		expect(result.sections[0]?.op).toBe("update");
 		expect(fs.get(PATH)).toBe("line0\nNEW\nline3\nline4\nline5\n");
-		expect(result.sections[0]?.warnings.some(w => /Recovered/.test(w))).toBe(true);
+		expect(result.sections[0]?.warnings.some((w) => /Recovered/.test(w))).toBe(true);
 		// Drift routed the resolution through recovery, where line numbers shift,
 		// so the (now-misleading) span is intentionally not surfaced.
 		expect(result.sections[0]?.blockResolutions).toBeUndefined();
@@ -329,8 +329,8 @@ describe("CUT N*", () => {
 	it("resolveBlockEdits expands a cut block into capture and deletes", () => {
 		const resolved = resolveBlockEdits(parsePatch("CUT 2*").edits, "ignored", PATH, stubResolver);
 
-		expect(resolved.map(edit => edit.kind)).toEqual(["cut", "delete", "delete"]);
-		expect(resolved.flatMap(edit => (edit.kind === "delete" ? [edit.anchor.line] : []))).toEqual([2, 3]);
+		expect(resolved.map((edit) => edit.kind)).toEqual(["cut", "delete", "delete"]);
+		expect(resolved.flatMap((edit) => (edit.kind === "delete" ? [edit.anchor.line] : []))).toEqual([2, 3]);
 	});
 
 	it("applyTo deletes the resolved block span", () => {
@@ -374,7 +374,7 @@ describe("PUT >N*:", () => {
 
 	it("still parses a literal `PUT > N:` anchor (distinct from `PUT >N*:`)", () => {
 		const { edits } = parsePatch("PUT >2:\n+A");
-		expect(edits.some(edit => edit.kind === "block")).toBe(false);
+		expect(edits.some((edit) => edit.kind === "block")).toBe(false);
 	});
 
 	it("rejects an `PUT >N*: N:` hunk with no body row", () => {
@@ -387,14 +387,14 @@ describe("PUT >N*:", () => {
 		const resolved = resolveBlockEdits(blockEdits, "ignored", PATH, stubResolver);
 		const insertEdits = parsePatch("PUT >3:\n+A\n+B").edits;
 
-		expect(resolved.some(edit => edit.kind === "block")).toBe(false);
+		expect(resolved.some((edit) => edit.kind === "block")).toBe(false);
 		expect(normalizeEdits(resolved)).toEqual(normalizeEdits(insertEdits));
 	});
 
 	it("fires onResolved with op insert_after", () => {
 		const seen: BlockResolution[] = [];
 		resolveBlockEdits(parsePatch("PUT >2*:\n+A").edits, "ignored", PATH, stubResolver, {
-			onResolved: resolution => seen.push(resolution),
+			onResolved: (resolution) => seen.push(resolution),
 		});
 		expect(seen).toEqual([{ anchorLine: 2, start: 2, end: 3, op: "insert_after" }]);
 	});
@@ -404,7 +404,7 @@ describe("PUT >N*:", () => {
 		const warnings: string[] = [];
 
 		const resolved = resolveBlockEdits(edits, "ignored", PATH, () => null, {
-			onWarning: warning => warnings.push(warning),
+			onWarning: (warning) => warnings.push(warning),
 		});
 
 		expect(normalizeEdits(resolved)).toEqual(normalizeEdits(parsePatch("PUT >7:\n+X").edits));
@@ -417,7 +417,7 @@ describe("PUT >N*:", () => {
 		const warnings: string[] = [];
 
 		const resolved = resolveBlockEdits(edits, "ignored", PATH, undefined, {
-			onWarning: warning => warnings.push(warning),
+			onWarning: (warning) => warnings.push(warning),
 		});
 
 		expect(normalizeEdits(resolved)).toEqual(normalizeEdits(parsePatch("PUT >2:\n+X").edits));
@@ -433,7 +433,7 @@ describe("PUT >N*:", () => {
 		// line 3 is `  }` — no block begins there, but it ends one; the body
 		// lands after it, exactly where `insert_after_block` would have put it.
 		expect(result.text).toBe("function x() {\n  if (y) {\n  }\n  done();\n}\n");
-		expect(result.warnings?.some(w => /applied as plain `PUT >3:`/.test(w))).toBe(true);
+		expect(result.warnings?.some((w) => /applied as plain `PUT >3:`/.test(w))).toBe(true);
 	});
 
 	it("lowers an unresolvable blank-line anchor to plain `PUT > N:` instead of failing", () => {
@@ -443,7 +443,7 @@ describe("PUT >N*:", () => {
 
 		expect(result.text).toBe("### Changed\n\n- new entry\n- old entry\n");
 		expect(
-			result.warnings?.some(w => /could not resolve a syntactic block.*applied as plain `PUT >2:`/.test(w)),
+			result.warnings?.some((w) => /could not resolve a syntactic block.*applied as plain `PUT >2:`/.test(w)),
 		).toBe(true);
 	});
 
@@ -457,7 +457,7 @@ describe("PUT >N*:", () => {
 		const result = await patcher.apply(Patch.parse(`[${PATH}#${tag}]\nPUT >3*:\n+  done();`));
 
 		expect(fs.get(PATH)).toBe("function x() {\n  if (y) {\n  }\n  done();\n}\n");
-		expect(result.sections[0]?.warnings.some(w => /applied as plain `PUT >3:`/.test(w))).toBe(true);
+		expect(result.sections[0]?.warnings.some((w) => /applied as plain `PUT >3:`/.test(w))).toBe(true);
 	});
 
 	it("applyTo inserts the body after the resolved block's last line", () => {

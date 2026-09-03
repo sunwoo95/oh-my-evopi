@@ -13,12 +13,12 @@ import type { ModelRegistry } from "../../core/model-registry.js";
 import {
 	checkPrimeAgentTracesAccess,
 	checkPrimeInferenceAccess,
+	EVOPI_TRACES_PROVIDER_ID,
+	EVOPI_TRACES_PROVIDER_NAME,
 	fetchPrimeTeams,
 	loadPrimeCliConfig,
 	loginPrimeAgentTraces,
 	loginPrimeInference,
-	EVOPI_TRACES_PROVIDER_ID,
-	EVOPI_TRACES_PROVIDER_NAME,
 	PRIME_INFERENCE_PROVIDER_ID,
 	PRIME_INFERENCE_PROVIDER_NAME,
 	type PrimeTeam,
@@ -521,11 +521,7 @@ export class ProviderAuthFlows {
 		});
 
 		closeDialog();
-		return await this.completeProviderAuthentication(
-			EVOPI_TRACES_PROVIDER_ID,
-			EVOPI_TRACES_PROVIDER_NAME,
-			"api_key",
-		);
+		return await this.completeProviderAuthentication(EVOPI_TRACES_PROVIDER_ID, EVOPI_TRACES_PROVIDER_NAME, "api_key");
 	}
 
 	async runPrimeInferenceLogin(): Promise<AuthenticationResult> {

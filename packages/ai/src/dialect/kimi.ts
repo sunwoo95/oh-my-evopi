@@ -1,6 +1,6 @@
+import { asRecord, normalizeKimiFunctionName, partialSuffixOverlapAny } from "./coercion.js";
 import { parseJsonWithRepair } from "./compat/json-parse.js";
 import type { Message, ToolCall } from "./compat/types.js";
-import { asRecord, normalizeKimiFunctionName, partialSuffixOverlapAny } from "./coercion.js";
 import dialectPrompt from "./kimi.prompt.js";
 import { assistantTranscriptParts, collectToolResultRun, messageContentText, stringifyJson } from "./rendering.js";
 import type {
@@ -274,7 +274,7 @@ function renderAssistantToolCalls(calls: readonly ToolCall[], _options?: Dialect
 
 function renderToolResults(results: readonly DialectToolResult[], _options?: DialectRenderOptions): string {
 	return results
-		.map(result =>
+		.map((result) =>
 			kimiTurn(
 				"system",
 				result.name,
@@ -291,7 +291,7 @@ function renderThinking(text: string): string {
 
 function renderTranscript(messages: readonly Message[], _options?: DialectRenderOptions): string {
 	let out = "";
-	for (let i = 0; i < messages.length;) {
+	for (let i = 0; i < messages.length; ) {
 		const message = messages[i]!;
 		if (message.role === "assistant") {
 			const parts = assistantTranscriptParts(message);
@@ -329,7 +329,7 @@ function kimiTurn(role: "assistant" | "system" | "user", name: string, body: str
 const definition: DialectDefinition = {
 	dialect: "kimi",
 	prompt: dialectPrompt,
-	createScanner: options => new KimiInbandScanner(options),
+	createScanner: (options) => new KimiInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

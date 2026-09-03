@@ -29,7 +29,7 @@ function describeCutEdit(edit: CutEdit): string {
 /** True when at least one edit reads or writes a clipboard register. */
 export function hasClipboardEdit(edits: readonly Edit[]): boolean {
 	return edits.some(
-		edit =>
+		(edit) =>
 			edit.kind === "cut" ||
 			edit.kind === "paste" ||
 			(edit.kind === "block" && (edit.mode === "cut" || edit.mode === "paste_after" || edit.register !== undefined)),

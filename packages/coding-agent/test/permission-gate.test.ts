@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import {
+	createPermissionGateExtension,
+	extractShellCommand,
+	isDangerousCommand,
+	type PermissionGateMode,
+} from "../src/core/extensions/builtin/permission-gate.js";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -6,12 +12,6 @@ import type {
 	ToolCallEvent,
 	ToolCallEventResult,
 } from "../src/core/extensions/types.js";
-import {
-	createPermissionGateExtension,
-	extractShellCommand,
-	isDangerousCommand,
-	type PermissionGateMode,
-} from "../src/core/extensions/builtin/permission-gate.js";
 import { probeSandbox, resetSandboxProbeCache } from "../src/core/sandbox-probe.js";
 
 // --- Minimal mock session: captures the handlers the factory registers, then
@@ -61,10 +61,7 @@ async function fireToolCall(
 	return result;
 }
 
-function fireSessionStart(
-	handlers: Map<string, Array<(e: any, ctx: any) => any>>,
-	ctx: ExtensionContext,
-): void {
+function fireSessionStart(handlers: Map<string, Array<(e: any, ctx: any) => any>>, ctx: ExtensionContext): void {
 	const event = { type: "session_start", reason: "startup" } as SessionStartEvent;
 	for (const handler of handlers.get("session_start") ?? []) handler(event, ctx);
 }
@@ -142,7 +139,7 @@ describe("R3 gate — warn / off fallback modes", () => {
 		const ctx = makeCtx({ hasUI: false, notices });
 		fireSessionStart(handlers, ctx);
 		expect(await fireToolCall(handlers, bashEvent("rm -rf /"), ctx)).toBeUndefined();
-		expect(notices.some(n => n.type === "warning" && /Dangerous command allowed/.test(n.message))).toBe(true);
+		expect(notices.some((n) => n.type === "warning" && /Dangerous command allowed/.test(n.message))).toBe(true);
 	});
 
 	it("off mode disables the gate entirely (eval auto-approve)", async () => {
@@ -162,7 +159,7 @@ describe("sandbox probe boot notification", () => {
 		createPermissionGateExtension({ probe: unavailableProbe, mode: mode("block") })(api);
 		const notices: Notice[] = [];
 		fireSessionStart(handlers, makeCtx({ hasUI: true, notices }));
-		expect(notices.some(n => n.type === "warning" && /OS sandbox unavailable/.test(n.message))).toBe(true);
+		expect(notices.some((n) => n.type === "warning" && /OS sandbox unavailable/.test(n.message))).toBe(true);
 	});
 });
 

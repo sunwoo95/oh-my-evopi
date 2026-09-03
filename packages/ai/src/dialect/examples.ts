@@ -28,7 +28,7 @@ export function renderToolExamples(tool: InbandTool, intentField?: string): stri
 		const finalArgs = intentField ? { [intentField]: INTENT_PLACEHOLDER, ...args } : args;
 		return `<example>\n${pyCall(tool.name, finalArgs)}\n</example>`;
 	};
-	const parts = examples.map(ex => {
+	const parts = examples.map((ex) => {
 		const head = ex.caption ? `# ${ex.caption}\n` : "";
 		if ("call" in ex) return head + renderCall(ex.call);
 		if ("good" in ex) {
@@ -50,7 +50,7 @@ export function renderToolExamplesJsdoc(tool: InbandTool): string {
 	const examples = tool.examples;
 	if (!examples?.length) return "";
 	const renderCall = (args: Record<string, unknown>): string => bareStringArg(args) ?? pyCall(tool.name, args);
-	const parts = examples.map(ex => {
+	const parts = examples.map((ex) => {
 		const head = ex.caption ? `@example ${JSON.stringify(ex.caption)}` : "@example";
 		if ("call" in ex) return `${head}\n${renderCall(ex.call)}`;
 		if ("good" in ex) return `${head}\nWRONG:\n${renderCall(ex.bad)}\nRIGHT:\n${renderCall(ex.good)}`;

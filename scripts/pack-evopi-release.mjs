@@ -30,6 +30,7 @@ const releasePackages = [
 	// required even though nothing publishes them independently.
 	{ packageDir: "natives-loader", publicName: undefined, artifactName: "evopi-natives-loader" },
 	{ packageDir: "hashline", publicName: undefined, artifactName: "evopi-hashline" },
+	{ packageDir: "mnemopi", publicName: undefined, artifactName: "evopi-mnemopi" },
 	{ packageDir: "ai", publicName: undefined, artifactName: "evopi-ai" },
 	{ packageDir: "tui", publicName: undefined, artifactName: "evopi-tui" },
 	{ packageDir: "agent", publicName: undefined, artifactName: "evopi-core" },

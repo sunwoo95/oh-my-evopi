@@ -24,7 +24,7 @@ const TAGS: readonly Tag[] = [
 	{ open: "<|start|>assistant<|channel|>analysis<|message|>", close: "<|end|>" }, // harmony analysis (rendered)
 	{ open: "<|channel|>analysis<|message|>", close: "<|end|>" }, // harmony analysis (bare leak)
 ];
-const OPENS = TAGS.map(tag => tag.open);
+const OPENS = TAGS.map((tag) => tag.open);
 
 export class ThinkingInbandScanner implements InbandScanner {
 	#buffer = "";
@@ -208,11 +208,11 @@ type VisibleHit =
  */
 function scanVisible(buffer: string, final: boolean): VisibleHit {
 	for (let i = 0; i < buffer.length; i++) {
-		const tag = TAGS.find(candidate => buffer.startsWith(candidate.open, i));
+		const tag = TAGS.find((candidate) => buffer.startsWith(candidate.open, i));
 		if (tag) return { kind: "tag", index: i, tag };
 		if (!final) {
 			const rest = buffer.slice(i);
-			if (OPENS.some(open => open.length > rest.length && open.startsWith(rest))) {
+			if (OPENS.some((open) => open.length > rest.length && open.startsWith(rest))) {
 				return { kind: "hold", index: i };
 			}
 		}
@@ -272,7 +272,7 @@ function trailingLineIndent(text: string, prior: number): number {
  * extend it into a non-fence line).
  */
 function findFenceCloseEnd(buffer: string, ticks: number, final: boolean): number {
-	for (let start = 0; start <= buffer.length;) {
+	for (let start = 0; start <= buffer.length; ) {
 		const nl = buffer.indexOf("\n", start);
 		const terminated = nl !== -1;
 		const line = buffer.slice(start, terminated ? nl : buffer.length).trim();

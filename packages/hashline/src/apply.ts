@@ -71,7 +71,7 @@ function trailingPhantomLine(fileLines: readonly string[]): number {
 function dropTrailingPhantomDeletes(edits: AppliedEdit[], fileLines: readonly string[]): AppliedEdit[] {
 	const phantomLine = trailingPhantomLine(fileLines);
 	if (phantomLine === 0) return edits;
-	return edits.filter(edit => edit.kind !== "delete" || edit.anchor.line !== phantomLine);
+	return edits.filter((edit) => edit.kind !== "delete" || edit.anchor.line !== phantomLine);
 }
 
 /**
@@ -181,7 +181,7 @@ const ANNOTATION_NODE_KINDS: Record<string, true> = {
 /** File line `line` is exactly a single-line annotation node. */
 function isAnnotationLine(fileLines: readonly string[], path: string, line: number): boolean {
 	return nodeChain(fileLines, path, line).some(
-		node => node.startLine === line && node.endLine === line && ANNOTATION_NODE_KINDS[node.kind] === true,
+		(node) => node.startLine === line && node.endLine === line && ANNOTATION_NODE_KINDS[node.kind] === true,
 	);
 }
 
@@ -259,7 +259,7 @@ function findReplacementGroup(edits: readonly AppliedEdit[], start: number): Rep
  */
 function repairReplacementIndentation(edits: AppliedEdit[], fileLines: readonly string[]): string[] {
 	let repaired = false;
-	for (let start = 0; start < edits.length;) {
+	for (let start = 0; start < edits.length; ) {
 		const group = findReplacementGroup(edits, start);
 		if (group === undefined) {
 			start++;
@@ -529,7 +529,7 @@ function replacementDeletes(group: ReplacementGroup, edits: readonly AppliedEdit
 }
 
 function isSourceLineDeleted(edits: readonly AppliedEdit[], line: number): boolean {
-	return edits.some(edit => edit.kind === "delete" && edit.anchor.line === line);
+	return edits.some((edit) => edit.kind === "delete" && edit.anchor.line === line);
 }
 
 /**
@@ -741,11 +741,11 @@ function applyGroupVariant(
 	fileLineCount: number,
 ): AppliedEdit[] {
 	let retainedInserts = inserts.slice(dropLeading, inserts.length - dropTrailing);
-	const retainedDeletes = deletes.filter(edit => edit.anchor.line !== beforeLine && edit.anchor.line !== afterLine);
+	const retainedDeletes = deletes.filter((edit) => edit.anchor.line !== beforeLine && edit.anchor.line !== afterLine);
 	if (beforeLine !== undefined) {
 		const cursor: Cursor =
 			beforeLine >= fileLineCount ? { kind: "eof" } : { kind: "before_anchor", anchor: { line: beforeLine + 1 } };
-		retainedInserts = retainedInserts.map(edit => ({ ...edit, cursor }));
+		retainedInserts = retainedInserts.map((edit) => ({ ...edit, cursor }));
 	}
 	return [...retainedInserts, ...retainedDeletes];
 }
@@ -822,7 +822,7 @@ function repairBoundaryVariants(
 		fileLines,
 		edits.map((edit, index) => cloneAppliedEdit(edit, index)),
 	).text;
-	const candidates = combos.filter(combo => combo.touched > 0).sort(compareBoundaryCombo);
+	const candidates = combos.filter((combo) => combo.touched > 0).sort(compareBoundaryCombo);
 
 	let bestText: string | undefined;
 	let bestCombo: BoundaryCombo | undefined;
@@ -960,7 +960,7 @@ function bodyTargetIndent(rows: readonly string[]): string | undefined {
 	const nonBlank = rows.filter(hasNonWhitespace);
 	if (nonBlank.length === 0) return undefined;
 	// A body of pure closers re-balances delimiters; it claims no depth.
-	if (nonBlank.every(row => STRUCTURAL_CLOSER_RE.test(row))) return undefined;
+	if (nonBlank.every((row) => STRUCTURAL_CLOSER_RE.test(row))) return undefined;
 	let target = leadingIndent(nonBlank[0] ?? "");
 	for (const row of nonBlank) {
 		const indent = leadingIndent(row);
@@ -1121,7 +1121,7 @@ function repairAfterInsertLandings(
 		}
 	};
 	for (const group of groups.values()) {
-		const target = bodyTargetIndent(group.members.map(idx => insertEditAt(edits, idx).text));
+		const target = bodyTargetIndent(group.members.map((idx) => insertEditAt(edits, idx).text));
 		if (target === undefined) continue;
 		const outward = resolveShiftedLanding(group, target, fileLines, targetedLines);
 		if (outward !== undefined) {
@@ -1145,17 +1145,17 @@ function repairAfterInsertLandings(
 			const targetCols = indentColumns(target);
 			if (targetCols >= indentColumns(anchorText)) continue;
 			const chain = nodeChain(fileLines, path, group.anchor);
-			if (!chain.some(node => node.startLine === group.anchor && node.endLine > group.anchor)) continue;
-			const rows = group.members.map(idx => insertEditAt(edits, idx).text);
+			if (!chain.some((node) => node.startLine === group.anchor && node.endLine > group.anchor)) continue;
+			const rows = group.members.map((idx) => insertEditAt(edits, idx).text);
 			if (!bodyIsRelocatableConstruct(rows, path)) continue;
 			const candidates = [
 				...new Set(
 					chain
 						.filter(
-							node =>
+							(node) =>
 								node.endLine > group.anchor && indentColumns(fileLines[node.startLine - 1] ?? "") <= targetCols,
 						)
-						.map(node => node.endLine),
+						.map((node) => node.endLine),
 				),
 			].sort((a, b) => a - b);
 			for (const landing of candidates) {
@@ -1322,7 +1322,7 @@ export function applyEdits(text: string, edits: readonly Edit[], options: ApplyE
 	const clipboardWarnings: string[] = [];
 	const concrete = resolveClipboardEdits(edits, fileLines, options.clipboard ?? {}, {
 		...(options.onEmptyPaste === undefined ? {} : { onEmptyPaste: options.onEmptyPaste }),
-		onWarning: message => clipboardWarnings.push(message),
+		onWarning: (message) => clipboardWarnings.push(message),
 	});
 
 	// Block edits are deferred until `resolveBlockEdits` expands them into

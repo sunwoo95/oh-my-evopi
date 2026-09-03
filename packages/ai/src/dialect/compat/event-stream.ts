@@ -169,8 +169,8 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 export class AssistantMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
 		super(
-			event => event.type === "done" || event.type === "error",
-			event => {
+			(event) => event.type === "done" || event.type === "error",
+			(event) => {
 				if (event.type === "done") {
 					return event.message;
 				} else if (event.type === "error") {

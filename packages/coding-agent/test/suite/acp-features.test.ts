@@ -77,9 +77,7 @@ async function connectAcp(harness: Harness, existing?: InProcessAgentConnection)
 		updates,
 		sessionId: session.sessionId,
 		metaOf: (key: string) =>
-			updates
-				.map((u) => u.update?._meta?.[EVOPI_META_NAMESPACE]?.[key])
-				.filter((value) => value !== undefined),
+			updates.map((u) => u.update?._meta?.[EVOPI_META_NAMESPACE]?.[key]).filter((value) => value !== undefined),
 	};
 }
 

@@ -122,10 +122,11 @@ describe("retryTransientCompletion", () => {
 
 	it("an abort during backoff rejects with the abort reason", async () => {
 		const controller = new AbortController();
-		const pending = retryTransientCompletion(
-			async () => errorMessageOf("overloaded_error"),
-			{ baseDelayMs: 5_000, maxAttempts: 3, signal: controller.signal },
-		);
+		const pending = retryTransientCompletion(async () => errorMessageOf("overloaded_error"), {
+			baseDelayMs: 5_000,
+			maxAttempts: 3,
+			signal: controller.signal,
+		});
 		const reason = new Error("user cancelled");
 		setTimeout(() => controller.abort(reason), 10);
 		await expect(pending).rejects.toThrow("user cancelled");

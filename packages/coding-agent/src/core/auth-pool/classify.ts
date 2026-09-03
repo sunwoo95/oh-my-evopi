@@ -147,7 +147,8 @@ const USAGE_LIMIT_PATTERN =
 const ACCOUNT_SCOPED_403_PATTERN =
 	/\b(reached (?:overall|account) (?:message )?rate limit|your limit will reset|account.*(?:rate ?limit|quota))\b/i;
 const CONCURRENCY_CAP_PATTERN = /\b(concurrent(?:_| )limit|too many concurrent|concurrency (?:cap|limit))\b/i;
-const ACCOUNT_POLICY_PATTERN = /\b(cyber_policy|account.*polic|permission_denied|org(?:anization)? (?:restrict|polic))\b/i;
+const ACCOUNT_POLICY_PATTERN =
+	/\b(cyber_policy|account.*polic|permission_denied|org(?:anization)? (?:restrict|polic))\b/i;
 
 /**
  * A concurrency cap on a non-billing status is shed-and-backoff, not

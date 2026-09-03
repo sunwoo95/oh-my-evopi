@@ -1,8 +1,13 @@
+import { asRecord, mintToolCallId, partialSuffixOverlapAny } from "./coercion.js";
 import { parseJsonWithRepair, parseStreamingJson } from "./compat/json-parse.js";
 import type { Message, ToolCall } from "./compat/types.js";
-import { asRecord, mintToolCallId, partialSuffixOverlapAny } from "./coercion.js";
 import dialectPrompt from "./hermes.prompt.js";
-import { renderChatMlTranscript, renderDelimitedThinking, renderToolResponseResults, stringifyJson } from "./rendering.js";
+import {
+	renderChatMlTranscript,
+	renderDelimitedThinking,
+	renderToolResponseResults,
+	stringifyJson,
+} from "./rendering.js";
 import type {
 	DialectDefinition,
 	DialectRenderOptions,
@@ -172,7 +177,7 @@ function renderToolCall(call: ToolCall, _options: DialectRenderOptions = {}): st
 }
 
 function renderAssistantToolCalls(calls: readonly ToolCall[], options: DialectRenderOptions = {}): string {
-	return calls.map(call => renderToolCall(call, options)).join("\n");
+	return calls.map((call) => renderToolCall(call, options)).join("\n");
 }
 
 function renderToolResults(results: readonly DialectToolResult[], _options: DialectRenderOptions = {}): string {
@@ -195,7 +200,7 @@ function renderTranscript(messages: readonly Message[], options: DialectRenderOp
 const definition: DialectDefinition = {
 	dialect: "hermes",
 	prompt: dialectPrompt,
-	createScanner: options => new HermesInbandScanner(options),
+	createScanner: (options) => new HermesInbandScanner(options),
 	renderToolCall,
 	renderAssistantToolCalls,
 	renderToolResults,

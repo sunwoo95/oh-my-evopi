@@ -530,9 +530,7 @@ export async function runShutdownAll(json: boolean, force: boolean): Promise<voi
 			);
 			return;
 		case "tty-error":
-			throw new Error(
-				'Shutdown requires confirmation in an interactive terminal. Use "evopi shutdown --force".',
-			);
+			throw new Error('Shutdown requires confirmation in an interactive terminal. Use "evopi shutdown --force".');
 		case "prompt": {
 			const confirmed = await promptYesNo(
 				"Stop every agent and background service? Active work will be interrupted.",

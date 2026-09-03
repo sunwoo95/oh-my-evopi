@@ -160,7 +160,7 @@ export class PreparedSection {
 }
 
 function hasAnchorScopedEdit(edits: readonly Edit[]): boolean {
-	return edits.some(edit => {
+	return edits.some((edit) => {
 		if (edit.kind === "delete" || edit.kind === "block" || edit.kind === "cut") return true;
 		if (edit.kind === "paste") {
 			if (edit.at.kind === "span") return true;
@@ -284,8 +284,8 @@ export class Patcher {
 				// A mid-batch write failure leaves earlier sections on disk with no
 				// rollback; report exactly which sections landed so the caller can
 				// re-issue only the missing ones instead of double-applying.
-				const written = prepared.slice(0, index).map(entry => entry.section.path);
-				const notWritten = prepared.slice(index + 1).map(entry => entry.section.path);
+				const written = prepared.slice(0, index).map((entry) => entry.section.path);
+				const notWritten = prepared.slice(index + 1).map((entry) => entry.section.path);
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(
 					`Failed to write ${prepared[index].section.path}: ${message}` +
@@ -451,10 +451,10 @@ export class Patcher {
 			...new Set(
 				this.snapshots
 					.findByHash(section.fileHash)
-					.filter(snapshot => path.basename(snapshot.path) === authoredName)
-					.map(snapshot => snapshot.path),
+					.filter((snapshot) => path.basename(snapshot.path) === authoredName)
+					.map((snapshot) => snapshot.path),
 			),
-		].filter(candidate => this.fs.canonicalPath(candidate) !== originalCanonicalPath);
+		].filter((candidate) => this.fs.canonicalPath(candidate) !== originalCanonicalPath);
 		if (candidates.length !== 1) return null;
 		const resolved = candidates[0];
 		return { section: section.withPath(resolved), canonicalPath: this.fs.canonicalPath(resolved) };
@@ -622,7 +622,7 @@ export class Patcher {
 	#assertSeenLines(section: PatchSection, expected: string, matchedSnapshot: Snapshot | null): void {
 		const seen = matchedSnapshot?.seenLines;
 		if (!seen || seen.size === 0) return;
-		const unseen = section.collectAnchorLines().filter(line => !seen.has(line));
+		const unseen = section.collectAnchorLines().filter((line) => !seen.has(line));
 		if (unseen.length === 0) return;
 		const sourceLines = matchedSnapshot?.text.split("\n") ?? [];
 		const revealed: RevealedLine[] = [];
@@ -707,8 +707,8 @@ export class Patcher {
 			}
 			resolved = resolveBlockEdits(edits, baseText, section.path, this.blockResolver, {
 				onUnresolved: "throw",
-				onResolved: resolution => blockResolutions.push(resolution),
-				onWarning: warning => resolveWarnings.push(warning),
+				onResolved: (resolution) => blockResolutions.push(resolution),
+				onWarning: (warning) => resolveWarnings.push(warning),
 			});
 		}
 		// Surface clipboard sequencing mistakes (`PASTE` before any capture,

@@ -699,8 +699,7 @@ export async function runAcpModeWithConnection(
 			// snapshot reads are in flight, then overwrite each other's session.
 			if (session || sessionNewInFlight || sessionCloseInFlight) {
 				throw new Error(
-					"evopi ACP mode hosts one session per connection; " +
-						"start another evopi process for a second session",
+					"evopi ACP mode hosts one session per connection; " + "start another evopi process for a second session",
 				);
 			}
 			sessionNewInFlight = true;

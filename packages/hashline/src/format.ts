@@ -127,7 +127,7 @@ export function computeFileHash(text: string): string {
  */
 export function describeAnchorExamples(linePrefix = ""): string {
 	const examples = linePrefix ? [linePrefix, `${linePrefix.slice(0, -1) || "4"}2`, "7"] : ["160", "42", "7"];
-	return examples.map(e => `"${e}"`).join(", ");
+	return examples.map((e) => `"${e}"`).join(", ");
 }
 
 /** Format a hashline section header for a file path and snapshot tag. */

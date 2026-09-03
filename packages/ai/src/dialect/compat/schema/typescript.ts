@@ -74,7 +74,7 @@ function emitDescription(lines: string[], description: string, ctx: Ctx, pad: st
 function convertArray(node: Record<string, unknown>, ctx: Ctx, pad: string): string {
 	const prefixItems = node.prefixItems;
 	if (Array.isArray(prefixItems)) {
-		return `[${prefixItems.map(item => convert(item, ctx, pad)).join(", ")}]`;
+		return `[${prefixItems.map((item) => convert(item, ctx, pad)).join(", ")}]`;
 	}
 	const items = node.items;
 	if (items === undefined || items === true) return "unknown[]";
@@ -172,15 +172,15 @@ function convert(node: unknown, ctx: Ctx, pad: string): string {
 	}
 
 	const union = Array.isArray(node.anyOf) ? node.anyOf : Array.isArray(node.oneOf) ? node.oneOf : undefined;
-	if (union) return joinUnion(union.map(variant => convert(variant, ctx, pad)));
+	if (union) return joinUnion(union.map((variant) => convert(variant, ctx, pad)));
 
 	if (Array.isArray(node.allOf)) {
-		return node.allOf.map(variant => convert(variant, ctx, pad)).join(" & ");
+		return node.allOf.map((variant) => convert(variant, ctx, pad)).join(" & ");
 	}
 
 	const type = node.type;
 	if (Array.isArray(type)) {
-		return joinUnion(type.map(entry => convertType(String(entry), node, ctx, pad)));
+		return joinUnion(type.map((entry) => convertType(String(entry), node, ctx, pad)));
 	}
 	if (typeof type === "string") return convertType(type, node, ctx, pad);
 
