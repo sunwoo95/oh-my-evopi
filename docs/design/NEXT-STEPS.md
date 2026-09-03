@@ -59,3 +59,21 @@
 ## 6. 권고 실행 순서
 A3(오탐 완화, 무인 실행 마찰 제거) → C2(스코어카드 자동화) → B1(Progress 원장) → B2(recall pull) → A2(allowlist) → C1/B5(키 확보 시 실측) → A1(샌드박스, 환경 확보 시) → D1 → 나머지.
 착수 단위는 SE 라운드와 동일: 측정 → 1건 수정 → 회귀 → REVIEW 기록.
+
+## 7. 진행 현황 (2026-09-03 NS Phase, DECISIONS M19–M23)
+
+| # | 상태 | 비고 |
+|---|---|---|
+| A3 | **완료** (M19) | 대상별 `rm -r*` 판정 + `permissionGate.mode/allow[]`. 코퍼스 30건. 미결: cwd 자체(`rm -rf .`) 통과 여부 |
+| A5 | **완료** (M19) | 세션 로그 `permission_gate` 엔트리(명령 sha256 16hex, 원문 미저장) |
+| A2 | **완료** (M20) | `kernel.envPolicy/envAllow`, `EVOPI_KERNEL_ENV_POLICY`; 기본 denylist 바이트 동일 |
+| B1 | **완료** (M21) | `rlm.harness.commit/progress/plan`, ≤8 비-done, PLAN 블록(evo 게이트) |
+| B2 | **완료** (M21) | `rlm.harness.recall` Jaccard top-3 + `usage_count`, MMR 가산점 |
+| C2 | **완료** (M23) | `scripts/self-eval.mjs`, `npm run self-eval`, 베이스라인 `eval/self-eval/0.10.0.json`, CI 아티팩트 |
+| C3 | **확인** (M23) | kernel-heavy 잡은 이미 matrix 에 존재 — uv 캐시 단계 보강 |
+| E3 | **완료** (M23) | `npm version -ws` exit 1 원인 규명 + `release.mjs` 버전 일치 검사로 흡수 |
+| (점검 후속) | **완료** (M22) | omp extension 호환 shim(`@oh-my-pi/*` 별칭, `pi.zod/typebox/logger`), print 모드 extension 로드 오류 stderr 표시 |
+| A4 · B3 · B4 · D1 · D4 · D5 · E1 · E2 | 미착수 | 다음 라운드. E2 는 이번 릴리스 수동 절차와 병행 검증 예정 |
+| C1 · B5 | 대기 | API 키 셸 export 확보 시 |
+| A1 | 대기 | userns 가용 호스트 확보 시 |
+| D2 | 보류 | prime agent-loop 수정 필요 — 골격 무수정 원칙과 충돌, 상류 제안 경로 검토 |

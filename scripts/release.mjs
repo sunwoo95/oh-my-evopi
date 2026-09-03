@@ -9,14 +9,16 @@
  *
  * Steps:
  * 1. Check for uncommitted changes
- * 2. Bump version via npm run version:xxx or set an explicit version
+ * 2. Bump (or set) the version with `npm version -ws --include-workspace-root`,
+ *    verify every package.json (npm's exit code is advisory, see npmVersionVerified),
+ *    then sync inter-package ranges and reinstall to rebuild the lockfile
  * 3. Update CHANGELOG.md files: aggregate .changes/*.md fragments into a
  *    [version] - date section, git rm the consumed fragments
  * 4. Commit and tag
  * 5. Publish to npm
  */
 
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { buildReleaseSection } from "./lib/changelog-fragments.mjs";
@@ -77,24 +79,85 @@ function stageChangedFiles() {
 	run(`git add -- ${paths.map(shellQuote).join(" ")}`);
 }
 
+function readJson(path) {
+	return JSON.parse(readFileSync(path, "utf-8"));
+}
+
+/** package.json paths `npm version -ws --include-workspace-root` writes: root + every workspace. */
+function workspacePackageJsonPaths() {
+	const paths = ["package.json"];
+	for (const pattern of readJson("package.json").workspaces ?? []) {
+		if (pattern.endsWith("/*")) {
+			const dir = pattern.slice(0, -2);
+			for (const entry of readdirSync(dir, { withFileTypes: true })) {
+				const pkgPath = join(dir, entry.name, "package.json");
+				if (entry.isDirectory() && existsSync(pkgPath)) paths.push(pkgPath);
+			}
+		} else if (existsSync(join(pattern, "package.json"))) {
+			paths.push(join(pattern, "package.json"));
+		}
+	}
+	return paths;
+}
+
+/**
+ * Bump every package.json to `expectedVersion` with `npm version`.
+ *
+ * npm writes all workspace package.json files first and only then runs an
+ * arborist reify to refresh the lockfile. When the bump leaves a caret range
+ * behind (0.10.0 → 0.11.0 no longer satisfies a sibling's `^0.10.0`), that reify
+ * resolves the sibling from the registry, hits E404 for the unpublished @evopi/*
+ * packages and exits 1 — after the versions were already written (NEXT-STEPS E3).
+ * The exit code is therefore advisory: the files are the source of truth, and
+ * sync-versions + the fresh `npm install` below rebuild the lockfile anyway.
+ */
+function npmVersionVerified(target, expectedVersion) {
+	const npmArgs = ["version", target, "--workspaces", "--include-workspace-root", "--no-git-tag-version"];
+	console.log(`$ npm ${npmArgs.join(" ")}`);
+	const result = spawnSync("npm", npmArgs, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+	if (result.stdout) process.stdout.write(result.stdout);
+	if (result.error) {
+		console.error(`Command failed: npm ${npmArgs.join(" ")}: ${result.error.message}`);
+		process.exit(1);
+	}
+
+	const paths = workspacePackageJsonPaths();
+	const mismatched = paths
+		.map((path) => ({ path, version: readJson(path).version }))
+		.filter(({ version }) => version !== expectedVersion);
+	if (mismatched.length > 0) {
+		console.error(`Error: npm version exited ${result.status}; expected every package.json at ${expectedVersion}:`);
+		for (const { path, version } of mismatched) console.error(`  ${path}: ${version}`);
+		if (result.stderr) console.error(result.stderr.trim());
+		process.exit(1);
+	}
+	if (result.status !== 0) {
+		console.warn(
+			`Warning: npm version exited ${result.status} but all ${paths.length} package.json files are at ${expectedVersion}; continuing.`,
+		);
+		if (result.stderr) console.warn(result.stderr.trim());
+	} else {
+		console.log(`  ${paths.length} package.json files at ${expectedVersion}`);
+	}
+}
+
 function bumpOrSetVersion(target) {
 	const currentVersion = getVersion();
 
 	if (BUMP_TYPES.has(target)) {
 		console.log(`Bumping version (${target})...`);
-		run(`npm run version:${target}`);
-		return getVersion();
+	} else {
+		if (compareVersions(target, currentVersion) <= 0) {
+			console.error(`Error: explicit version ${target} must be greater than current version ${currentVersion}.`);
+			process.exit(1);
+		}
+		console.log(`Setting explicit version (${target})...`);
 	}
 
-	if (compareVersions(target, currentVersion) <= 0) {
-		console.error(`Error: explicit version ${target} must be greater than current version ${currentVersion}.`);
-		process.exit(1);
-	}
-
-	console.log(`Setting explicit version (${target})...`);
-	run(
-		`npm version ${target} -ws --no-git-tag-version && node scripts/sync-versions.js && npx shx rm -rf node_modules packages/*/node_modules package-lock.json && npm install`,
-	);
+	npmVersionVerified(target, previewVersion(target));
+	run("node scripts/sync-versions.js");
+	run("npx shx rm -rf node_modules packages/*/node_modules package-lock.json");
+	run("npm install");
 	return getVersion();
 }
 

@@ -842,3 +842,76 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
 - prime 골격 무수정 원칙 유지(agent-loop·커널 프로토콜 불변; 변경은 spawn env·ExecuteOptions·빌트인 확장·테마 로더).
 - 미해소(후속): OS 샌드박스(bwrap) 는 프로브만 — userns 가용 환경 확보 시 sandbox 확장 승격(D3 재검토 조건 그대로).
 - **[배포완료]** v0.10.0 — main 005e64a / gh-pages ea2aafe, 격리 설치 실검증 통과 (REVIEW 동일 항목).
+
+### NS Phase 시작 — NEXT-STEPS 트랙 A/B/C 구현 라운드 (2026-09-03, 사용자 지시 "영역도 추가 구현 → 검증루프 → 재배포")
+
+- **트리거**: docs/design/NEXT-STEPS.md 권고 순서 A3 → C2 → B1 → B2 → A2 (+ 동일 파일군의 A5·C3·E3) 와, 직전 점검에서
+  나온 후속 2건(omp extension 호환 shim, print 모드 extension 로드 오류 출력). C1/B5(API 키)·A1(userns 환경) 은 조건 미충족으로 이연,
+  D2 는 골격 무수정 원칙 충돌로 보류.
+- **적용 정책 [자동확정]**: SE 라운드 규약 그대로(측정 → 수정 → 회귀 → 기록). 모든 신설 동작은 설정/env 미지정 시 **바이트 동일**
+  (A3 의 의도된 rm 오탐 완화만 예외), prime 골격(packages/agent) 무수정, 원본 레포 2개 무접촉, node 전용.
+  파일 소유권을 트랙별로 분리해 병렬 구현(트랙 A: gate/kernel-env/settings, 트랙 B: harness.py/refinement, 트랙 C: scripts/CI),
+  통합·빌드·배포는 메인 컨텍스트가 수행.
+
+#### M19 완료 — A3 게이트 오탐 완화 + A5 게이트 텔레메트리 (2026-09-03)
+- `permission-gate.ts` 의 `rm -r*` 규칙을 **대상별 판정**으로 교체(`hasDangerousRecursiveRm`, `isDangerousCommand(command, {cwd})`):
+  `/`, `~`/`$HOME`, 단독 `*`/`/*`, cwd 를 벗어나는 `..`, cwd 외부 절대경로(앞선 `cd` 추적), `--no-preserve-root`, `sudo` 만 위험.
+  `rm -rf ./dist` 등 프로젝트 내부 경로는 통과. 나머지 20개 파괴 패턴 불변.
+- 설정 `permissionGate.mode`(block|warn|off, 기본 block) · `permissionGate.allow[]`(정규식 화이트리스트, 잘못된 항목 1회 경고 후 무시);
+  `EVOPI_PERMISSION_GATE` 가 설정보다 우선. 게이트 팩토리에 settings reader 주입(`agent-session-services.ts`).
+- A5: 모든 결정(allowed-by-whitelist/warned/blocked/confirmed-by-user/denied-by-user)을 세션 로그 `permission_gate` 엔트리로 기록 —
+  `{decision, hazardKind, tool, commandSha256(16 hex), mode}`, 명령 원문 미저장, appendEntry 실패 try/catch 격리.
+- 테스트 permission-gate 16→29(통과/차단 코퍼스 30건 포함). 판단 보류 1건: cwd 자체(`rm -rf .`)는 "내부"로 통과 — 프로젝트 루트 보호가
+  필요하면 `startsWith(cwd + "/")` 로 조이는 후속.
+
+#### M20 완료 — A2 커널 env allowlist 모드 (2026-09-03)
+- `kernel-env.ts`: `KernelEnvPolicy = "denylist" | "allowlist"`, 내장 allowlist(PATH/HOME/USER/로케일/TERM/임시디렉터리/XDG_*/EVOPI_*/
+  VIRTUAL_ENV/PYTHON*/UV_*/PIP_*/CA 번들/프록시), `envAllow` 정확명·`PREFIX*`, `EVOPI_KERNEL_ENV_POLICY` 가 설정보다 우선,
+  두 모드 모두 제공자 자격증명은 `inheritSecrets` 없이는 차단. 진단 라인은 12개 나열 후 `+N more`(denylist 문구는 바이트 동일).
+- 배선: `settings-manager.ts` `KernelSettings.envPolicy/envAllow` + `getKernelEnvPolicy()` → `agent-session.ts` `_buildRuntime` →
+  `IpythonToolOptions.envPolicy/envAllow`(`tools/ipython.ts`) → `ReplKernelManagerOptions` → `buildKernelEnv`.
+- 테스트 kernel-env 5→11. 기본(denylist) 경로 바이트 동일.
+
+#### M21 완료 — B1 Progress 원장 + B2 recall pull (EvoHarness-RL P1·P2, 2026-09-03)
+- 커널(`evopi-runtime/src/rlm/harness.py`): `commit(subgoal, status="open"|"active"|"done"|"blocked", *, note)` 가 `memory` 엔트리를
+  `progress:<slug>` id · `metadata={bpe:"progress", status, order, updated_turn}` 로 upsert, **비-done 8개 상한** 초과 시 ValueError;
+  `progress()`/`plan()` 이 `[x]/[>]/[ ]/[!]` PLAN 블록 렌더; `recall(query, kind=None, limit=3)` 은 title+content+path 소문자 토큰
+  Jaccard top-k(progress 엔트리 제외), 히트마다 `metadata.usage_count++` 저장(무히트 시 저장 없음). 셀에서는 `rlm.harness.*` 로 접근.
+- 호스트: `refinement/progress-ledger.ts`(`isProgressEntry`/`bpeClass`/`renderPlanBlock`), `formatHarnessStateForPrompt` 의
+  `bpeView`/`goalObjective` 옵션(PLAN 선행 + `[progress|experience|belief]` 라벨 + commit/recall 안내 1문장씩),
+  `harness-select.ts` `usageBonus = min(usage_count,10)*0.02`(MMR 경로 한정), `system-prompt.ts` `harnessBpeView/harnessGoalObjective`,
+  `agent-session.ts` `_resolveHarnessBpeView()`(MMR 셀렉터와 동일 게이트 = evo on 또는 `harness.selection:"mmr"`).
+- evo off 바이트 동일 증명: `test/progress-ledger.test.ts`(formatter·buildSystemPrompt 동일 문자열), `test/refinement.test.ts` 추가 케이스.
+  Python 35→45, vitest 90→106. 설계 편차: BPE 뷰에서 progress 엔트리는 memory 섹션 대신 PLAN 에만 렌더(MMR 6슬롯 잠식 방지);
+  PLAN 은 시스템 프롬프트 재빌드 시점(세션 시작/툴 변경/refine 완료/확장 로드) 갱신, `rlm.harness.plan()` 은 실시간.
+- 05446 백로그 ① 의 첫 구현. B3(성공-무경험 note 트리거)·B4(SKIP/MERGE 어휘·LFU)·B6(Belief) 는 다음 라운드.
+
+#### M22 완료 — omp extension 호환 shim + print 모드 extension 로드 오류 표면화 (2026-09-03)
+- 점검 실측(격리 샌드박스): pi 원본(`@mariozechner/*`) extension 은 `-e`·`package install` 모두 정상, omp 예제 `hello.ts` 는
+  `pi.zod` 부재로 무음 실패, print 모드는 로드 오류를 어디에도 출력하지 않음.
+- 별칭: `loader.ts`/`bundled-modules.ts` 에 `@oh-my-pi/pi-{coding-agent,agent-core,tui,ai,ai/oauth}` → 번들 모듈 매핑 추가.
+- ExtensionAPI 멤버 3종 추가(`types.ts`): `zod`(신규 `extensions/zod-compat.ts` — omptype 이식 대신 **TypeBox 위 Zod-v4 facade**;
+  반환값이 곧 TSchema 이며 헬퍼는 non-enumerable, `~kind/~optional` 마커 보존, `default` 키 충돌은 값 우선), `typebox`(실제 모듈),
+  `logger`(`getLogger("extension:<file>")`). `refine/transform/catch` 는 와이어 스키마 불변(문서화된 한계). omp 전용 13개 중
+  `arktype/pi/family/tier/getServiceTiers/setServiceTier/getArgumentCompletions/registerAssistantThinkingRenderer/registerComposerShape/
+  registerFile{Write,Delete}Fallback` 은 미구현(v2).
+- 로드 오류 표면화 — 원인: print/json 클라이언트는 daemon 경로를 타고, supervisor 의 `create` 응답이 roster 엔트리에서 조립되는데
+  `agent-roster.ts` `workerRosterEntryFromSummary` 가 `diagnostics` 를 벗겨 내 `summary.diagnostics` 가 항상 undefined.
+  수정: roster 요약에 `diagnostics` 유지(`RosterSessionSummary` Omit 에서 제외). `main.ts` 의 extension 로드 실패 진단은
+  **error → warning** 으로 낮춰 stderr 에 표시하되 세션은 계속(prime 의 "error → exit(1)" 은 실제로는 도달한 적 없는 경로였음 — evopi 결정).
+- 테스트 `test/extension-omp-compat.test.ts` 7건(facade 동치·omp hello.ts 원문 로드·`@oh-my-pi/pi-ai`/`pi-tui` 값 import·broken 오류 보고).
+
+#### M23 완료 — C2 자가평가 스코어카드 자동화 + C3 CI 캐시 + E3 릴리스 스크립트 (2026-09-03)
+- C2: `scripts/self-eval.mjs` 신설(`npm run self-eval`) — SELF-EVAL 최종 스코어카드(G1 tsgo/biome, G2 vitest, G3 번들, S1/S2 소스 파싱,
+  R1/R2 상수, P1 시작시간, H2 shellcheck, F3 리터럴)를 JSON 으로 수집. node 내장만 사용, 측정 전용(`--noEmit`, biome 무수정).
+  옵션 `--skip-tests | --out | --write | --baseline <json> | --fail-on-regression`(vitest fail 증가·tsgo/biome 오류·F3 비승인 히트 = 하드 게이트).
+- 첫 베이스라인 `eval/self-eval/0.10.0.json`(commit 1043a16): tsgo 0/0 · biome 0 · vitest 4710 pass / 0 fail / 0 errors(357 파일) ·
+  번들 14,674,966 B · S1 30+1(allowlist 존재) · S2 19/5/8/9 · R1 1,800,000 ms · R2 65,536 B · 시작 376–403 ms · shellcheck 통과 · F3 0.
+  (SELF-EVAL 의 "위험 패턴 21" 은 A3 가 rm 규칙을 함수로 옮긴 뒤 19 로 측정 — 문서 수치 갱신.)
+- C3: kernel-heavy 잡(`npm run test:kernel`)은 이미 matrix 에 존재 → uv 캐시(`~/.cache/uv`, `~/.local/share/uv`, `~/.evopi/agent/kernel-venv`,
+  `evopi-runtime/uv.lock` 키) 추가, build-check 에 self-eval 아티팩트 업로드(actions SHA 고정, `git ls-remote --tags` 로 확인).
+- E3 원인 확정: `npm version -ws --include-workspace-root` 는 모든 package.json 을 먼저 쓰고 lockfile reify 를 실행하는데, caret 범위를
+  벗어나는 bump(0.10→0.11) 에서 미배포 `@evopi/*` 를 레지스트리에 조회해 **E404 → exit 1**(patch bump 는 exit 0). `scripts/release.mjs`
+  는 npm 종료코드를 참고값으로 취급 — 루트+전 워크스페이스 버전 일치 검증 후 일치하면 경고만, 불일치 시에만 실패.
+- 주의: `biome.json` includes 가 `scripts/` 를 제외하므로 mjs 는 `--stdin-file-path` 검사로 대체. `sync-versions.js` 가 루트 package.json 의
+  `@evopi/pi-coding-agent` 의존 버전은 갱신하지 않음(후속).

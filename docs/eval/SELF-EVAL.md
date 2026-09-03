@@ -113,3 +113,10 @@
 | H1 | 문서-코드 불일치 | ≥1 | 0 | R6 |
 | H2 | shellcheck 경고 / F3 | 7 / 0 | **0** / 0 (check:shell 게이트) | R7, R10 |
 | — | 디스크 | 4.7 GB 코어덤프 | 회수 | R11 |
+
+## 자동화 (C2)
+
+위 최종 스코어카드는 `scripts/self-eval.mjs` 가 JSON 으로 수집한다 — `npm run self-eval -- --skip-tests`(수 초) /
+`npm run self-eval`(vitest 포함, 수 분) / `--write` 로 `eval/self-eval/<version>.json` 베이스라인 저장 /
+`--baseline <file>` 로 릴리스 간 비교표, `--fail-on-regression` 으로 하드 지표(vitest fail 증가·tsgo·biome 오류·F3 비승인 히트) 게이트.
+CI `build-check` 잡이 `--skip-tests` 결과를 `self-eval` 아티팩트로 저장한다. 사용법은 `eval/self-eval/README.md`.
