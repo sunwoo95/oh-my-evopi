@@ -56,3 +56,6 @@ __pycache__/
 
 # Release artifacts (built by scripts/pack-evopi-release.mjs, published to GitHub Pages)
 packages/coding-agent/release/
+
+# seminar render previews
+docs/seminar/preview/

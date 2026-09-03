@@ -1,0 +1,90 @@
+// Claude Code 전체 아키텍처 맵 — refs/claude-code-8layer-map.md 전사본을 evopi 맵과 동일 스타일로 재현 (비교용)
+// 렌더: neato -Tpng -Gdpi=150 claude-code-master-arch.dot -o claude-code-master-arch.png
+digraph claude_code_master_arch {
+  graph [bgcolor="#0f1115", fontname="Noto Sans CJK KR", fontcolor="#ffffff", splines=line, outputorder=edgesfirst,
+         labelloc=t, labeljust=l, fontsize=30, pad=0.4,
+         label=<<b>Claude Code 전체 아키텍처 맵</b><br/><font point-size="17" color="#2ec4b6">Master Agent Loop을 중심으로 한 여덟 개 레이어 (참조 슬라이드 전사)</font><br/> >];
+  node  [fontname="Noto Sans CJK KR", shape=plaintext, fontcolor="#ffffff", fontsize=12];
+  edge  [fontname="Noto Sans CJK KR", fontsize=11, color="#8a8f99", fontcolor="#c9ccd3", penwidth=1.6, arrowsize=0.9];
+
+  input [pos="9.0,7.1!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="3" align="left"><font color="#2ec4b6" point-size="12"><b>INPUT LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>User Interface</b><br/><font point-size="9" color="#aab0bb">CLI / IDE / CI-CD</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="s"><b>Session Mgr</b><br/><font point-size="9" color="#aab0bb">Resume / Fork</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Permission</b><br/><font point-size="9" color="#aab0bb">Ask / Allow / Deny</font></td>
+ </tr>
+</table>>];
+
+  obs [pos="2.7,5.35!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>OBSERVABILITY</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Hooks</b><br/><font point-size="9" color="#aab0bb">lifecycle</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Background</b><br/><font point-size="9" color="#aab0bb">non-block</font></td>
+ </tr>
+</table>>];
+
+  multi [pos="2.7,3.75!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>MULTI-AGENT</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Subagents</b><br/><font point-size="9" color="#aab0bb">isolated ctx</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Worktrees</b><br/><font point-size="9" color="#aab0bb">parallel</font></td>
+ </tr>
+</table>>];
+
+  loop [pos="9.0,4.55!", label=<
+<table border="3" color="#2ec4b6" cellborder="0" cellspacing="0" cellpadding="14" bgcolor="#1e222a" style="rounded">
+ <tr><td><font point-size="20" color="#2ec4b6"><b>Master Agent Loop</b></font></td></tr>
+ <tr><td><font point-size="13">Gather → Act → Verify</font></td></tr>
+ <tr><td><font point-size="9" color="#aab0bb">Claude 모델 + 도구</font></td></tr>
+</table>>];
+
+  know [pos="16.2,5.35!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>KNOWLEDGE LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="w"><b>CLAUDE.md</b><br/><font point-size="9" color="#aab0bb">always on</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Auto Memory</b><br/><font point-size="9" color="#aab0bb">MEMORY.md</font></td>
+ </tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Skills</b><br/><font point-size="9" color="#aab0bb">on-demand</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Context Win</b><br/><font point-size="9" color="#aab0bb">compaction</font></td>
+ </tr>
+</table>>];
+
+  exec [pos="2.8,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="3" align="left"><font color="#2ec4b6" point-size="12"><b>EXECUTION LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Tool Dispatch</b><br/><font point-size="9" color="#aab0bb">typed registry</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="k"><b>Prompt Cache</b><br/><font point-size="9" color="#aab0bb">~10% cost</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Streaming</b><br/><font point-size="9" color="#aab0bb">real-time</font></td>
+ </tr>
+</table>>];
+
+  integ [pos="10.4,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>INTEGRATION</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="w"><b>MCP Runtime</b><br/><font point-size="9" color="#aab0bb">auto-discover</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Ext Servers</b><br/><font point-size="9" color="#aab0bb">FS / Git / Custom</font></td>
+ </tr>
+</table>>];
+
+  out [pos="16.2,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td align="left"><font color="#2ec4b6" point-size="12"><b>OUTPUT LAYER</b></font></td></tr>
+ <tr><td border="3" color="#2ec4b6" bgcolor="#1e222a" style="rounded" cellpadding="14" port="w"><font point-size="15"><b>Task Result</b></font><br/><font point-size="10" color="#aab0bb">Verified output / Memory updated</font></td></tr>
+</table>>];
+
+  input:s -> loop      [label="request", color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  obs:e   -> loop      [label="observe", dir=both, arrowhead=vee, arrowtail=vee];
+  multi:e -> loop      [label="spawn",   dir=both, arrowhead=vee, arrowtail=vee];
+  know:w  -> loop      [label="feeds",   color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  loop    -> exec:k    [label="execute", color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  exec:e  -> integ:w   [label="register"];
+  integ:e -> out:w     [label="result"];
+}

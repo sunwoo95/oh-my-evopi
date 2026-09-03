@@ -818,3 +818,26 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   순회+dedup·401 1회 전환 정책·비-auth 통과·abort·no-key 무행·분류 테이블·env
   게이팅·헤더 리바인드) + 회귀(auth-pool 17·dialect-mode 10·oneshot 12·
   harness-select 6) 53/53, tsgo 0, Bun 게이트 0건.
+
+### SE Phase 시작 — 프레임워크 자가평가·개선 라운드 (2026-09-03, /goal)
+
+- **트리거**: 사용자 /goal "evo-harness 에 묶이지 않고 evopi 프레임워크 자체의 성능을 개선하기 위한 자가평가를
+  진행하고 검증해서 10라운드 이상 진행하고 버전업데이트". 입력 = harness-comparison.md §4 리스크(R-1~R-4),
+  evoharness-rl-assessment.md §4 개선점, evopi-harness-inventory.md.
+- **적용 정책 [자동확정]**:
+  1. 스코어카드(docs/eval/SELF-EVAL.md) = 측정 가능한 게이트만: tsgo·biome·installer·browser-smoke·vitest 배치 /
+     보안(커널 비밀키 노출 수, 위험명령 코퍼스 탐지율) / 견고성(셀 타임아웃·stderr 상한) / 성능(시작시간·번들) /
+     위생(F3 grep, 문서-코드 불일치 건수).
+  2. 라운드 = 측정 → 최상위 결함 1건 최소 수정 → 회귀(관련 스위트 + tsgo + biome) → REVIEW 기록. 실패 3회 → BLOCKERS.
+  3. **evo 레이어 무관**: 모든 변경은 `EVOPI_EVO` 와 독립, prime 골격 무수정 원칙(agent-loop·커널 프로토콜 불변),
+     기본 동작 변화는 opt-out 가능한 안전 방향만(비밀키 차단·타임아웃) — 기존 테스트 무회귀 게이트.
+  4. 버전: 라운드 종료 후 semver minor(0.10.0 — 기본 동작 변화 포함) 범프 → build → pack → gh-pages 게시 →
+     격리 prefix curl|sh 실검증 → main push (2026-09-02 배포 사이클 인가 승계).
+- **베이스라인(Round 0, 실행 출력)**: tsgo(coding-agent/ai) 0 · biome 0(1076 files) · installer 0 · browser-smoke 0 ·
+  startup `--version` 0.37~0.42s(5회) · bundle 15M · 라이브 latest.json = v0.9.7.
+
+#### SE Phase 종료 (2026-09-03) — 12 라운드, 버전 0.10.0
+- 결과: docs/eval/SELF-EVAL.md 최종 스코어카드. 기본 동작 변화 3건(커널 비밀키 차단·셀 30분 타임아웃·게이트 범위 확대)은
+  전부 opt-out(`EVOPI_KERNEL_INHERIT_SECRETS`, `kernel.cellTimeoutMs=0`, `EVOPI_PERMISSION_GATE=warn|off`) → semver **minor** 0.10.0.
+- prime 골격 무수정 원칙 유지(agent-loop·커널 프로토콜 불변; 변경은 spawn env·ExecuteOptions·빌트인 확장·테마 로더).
+- 미해소(후속): OS 샌드박스(bwrap) 는 프로브만 — userns 가용 환경 확보 시 sandbox 확장 승격(D3 재검토 조건 그대로).

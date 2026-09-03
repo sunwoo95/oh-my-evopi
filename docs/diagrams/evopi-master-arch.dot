@@ -1,0 +1,110 @@
+// evopi 마스터 아키텍처 맵 — Claude Code 8레이어 맵(refs/claude-code-8layer-map.md)과 동일 격자
+// 렌더: neato -Tpng -Gdpi=110 evopi-master-arch.dot -o evopi-master-arch.png  (pos="x,y!" 고정좌표)
+digraph evopi_master_arch {
+  graph [bgcolor="#0f1115", fontname="Noto Sans CJK KR", fontcolor="#ffffff", splines=line, outputorder=edgesfirst,
+         labelloc=t, labeljust=l, fontsize=30, pad=0.4,
+         label=<<b>evopi 전체 아키텍처 맵</b><br/><font point-size="17" color="#2ec4b6">Master Agent Loop(prime 골격)을 중심으로 한 여덟 개 레이어 + evo 레이어</font><br/> >];
+  node  [fontname="Noto Sans CJK KR", shape=plaintext, fontcolor="#ffffff", fontsize=12];
+  edge  [fontname="Noto Sans CJK KR", fontsize=11, color="#8a8f99", fontcolor="#c9ccd3", penwidth=1.6, arrowsize=0.9];
+
+  // ── 레이어 노드 (HTML 테이블) ────────────────────────────────────────────────
+  input [pos="9.0,7.1!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="3" align="left"><font color="#2ec4b6" point-size="12"><b>INPUT LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>User Interface</b><br/><font point-size="9" color="#aab0bb">TUI / print / RPC / ACP / SDK · daemon</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="s"><b>Session Mgr</b><br/><font point-size="9" color="#aab0bb">sessions/*.jsonl 트리 · resume + dill 복원</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Permission Gate</b><br/><font point-size="9" color="#aab0bb">block / warn / off (EVOPI_PERMISSION_GATE)</font></td>
+ </tr>
+</table>>];
+
+  obs [pos="2.7,5.35!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>OBSERVABILITY</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Extension Hooks</b><br/><font point-size="9" color="#aab0bb">31 이벤트 · tool_call · session_before_refine · …</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Background</b><br/><font point-size="9" color="#aab0bb">rlm.bash 핸들 · 백그라운드 refine 플랜 · cron</font></td>
+ </tr>
+</table>>];
+
+  multi [pos="2.7,3.75!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>MULTI-AGENT</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Subagents (rlm)</b><br/><font point-size="9" color="#aab0bb">커널 내 rlm() 호출 · sub-세션 아티팩트</font></td>
+  <td border="1" color="#2c3038" bgcolor="#161a21" style="rounded,dashed"><font color="#8a8f99"><b>Worktrees</b></font><br/><font point-size="9" color="#6f7580">v2 이연 (미구현)</font></td>
+ </tr>
+</table>>];
+
+  loop [pos="9.0,4.55!", label=<
+<table border="3" color="#2ec4b6" cellborder="0" cellspacing="0" cellpadding="14" bgcolor="#1e222a" style="rounded">
+ <tr><td><font point-size="20" color="#2ec4b6"><b>Master Agent Loop</b></font></td></tr>
+ <tr><td><font point-size="13">Think → ipython 실행 → Verify</font></td></tr>
+ <tr><td><font point-size="9" color="#aab0bb">agentLoop() · AgentSession (agent-session.ts ≈12k줄)</font></td></tr>
+</table>>];
+
+  know [pos="16.2,5.35!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>KNOWLEDGE LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="w"><b>AGENTS.md / SYSTEM.md</b><br/><font point-size="9" color="#aab0bb">always on · ~/.evopi/agent + 프로젝트</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="h"><b>Harness Ledger</b><br/><font point-size="9" color="#aab0bb">harness_state.json · memory/prompt/skill/subagent</font></td>
+ </tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Skills</b><br/><font point-size="9" color="#aab0bb">번들 16 (Python 11 · md 5) · SKILL.md+pyproject · on-demand</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Context Win</b><br/><font point-size="9" color="#aab0bb">요약 컴팩션(D5) · MMR 주입 선택기(mnemopi)</font></td>
+ </tr>
+</table>>];
+
+  evo [pos="16.2,3.3!", label=<
+<table border="1" color="#1f6f66" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#0f1c1b" style="rounded">
+ <tr><td colspan="2" align="left"><font color="#2ec4b6" point-size="12"><b>EVO LAYER</b></font> <font color="#aab0bb" point-size="10">evopi 고유 · optional (EVOPI_EVO on/off, D7)</font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>autoRefine</b><br/><font point-size="9" color="#aab0bb">turn_interval / compact · before/after 롤백</font></td>
+  <td border="1" color="#2ec4b6" bgcolor="#1e222a" style="rounded" port="g"><b>grounded-refine</b><br/><font point-size="9" color="#aab0bb">실패 신호 시만 refine(D1) · &lt;external_feedback&gt; 주입(D4)</font></td>
+ </tr>
+</table>>];
+
+  exec [pos="2.8,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="3" align="left"><font color="#2ec4b6" point-size="12"><b>EXECUTION LAYER</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Tool Dispatch</b><br/><font point-size="9" color="#aab0bb">ipython 단일·sequential · hashline_edit(선택)<br/>TS bash/edit 정의는 미등록</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="k"><b>IPython Kernel</b><br/><font point-size="9" color="#aab0bb">uv venv · JSON-lines v3 · dill 스냅샷<br/>비격리 (D3 폴백)</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Streaming</b><br/><font point-size="9" color="#aab0bb">sdk.ts streamFn: dialect 래핑<br/>auth-pool 로테이션 · 9 API 종</font></td>
+ </tr>
+</table>>];
+
+  integ [pos="10.4,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td colspan="3" align="left"><font color="#2ec4b6" point-size="12"><b>INTEGRATION</b></font></td></tr>
+ <tr>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="w"><b>MCP Runtime</b><br/><font point-size="9" color="#aab0bb">rlm.mcp (커널 내)<br/>settings mcp</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded"><b>Providers</b><br/><font point-size="9" color="#aab0bb">models.generated · OAuth 3 · bedrock<br/>databricks · prime-inference(peer)</font></td>
+  <td border="1" color="#3a3f4a" bgcolor="#1e222a" style="rounded" port="e"><b>Natives</b><br/><font point-size="9" color="#aab0bb">pi-natives prebuilt<br/>natives-loader (AVX2 선택)</font></td>
+ </tr>
+</table>>];
+
+  out [pos="16.2,1.2!", label=<
+<table border="1" color="#3a3f4a" cellborder="0" cellspacing="8" cellpadding="6" bgcolor="#161a21" style="rounded">
+ <tr><td align="left"><font color="#2ec4b6" point-size="12"><b>OUTPUT LAYER</b></font></td></tr>
+ <tr><td border="3" color="#2ec4b6" bgcolor="#1e222a" style="rounded" cellpadding="14" port="w"><font point-size="15"><b>Task Result</b></font><br/><font point-size="10" color="#aab0bb">검증된 출력 / harness 갱신 (refinements.jsonl)</font></td></tr>
+</table>>];
+
+  eval [pos="21.8,2.3!", label=<
+<table border="1" color="#5a6070" cellborder="0" cellspacing="0" cellpadding="8" bgcolor="#141821" style="rounded,dashed">
+ <tr><td port="t"><b>EVAL</b> <font point-size="10" color="#aab0bb">제품 밖 · bun 격리</font><br/><font point-size="9" color="#aab0bb">eval/metaharness · 4-arm A/B · pass/fail 신호원 (EVOPI_FEEDBACK_FILE)</font></td></tr>
+</table>>];
+
+  // ── 엣지 ─────────────────────────────────────────────────────────────────────
+  input:s -> loop      [label="request", color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  obs:e   -> loop      [label="observe", dir=both, arrowhead=vee, arrowtail=vee];
+  multi:e -> loop      [label="spawn",   dir=both, arrowhead=vee, arrowtail=vee];
+  know:w  -> loop      [label="feeds",   color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  evo:g   -> know:h    [label=" create/update/delete", color="#2ec4b6", fontcolor="#2ec4b6", penwidth=1.8];
+  loop    -> exec:k    [label="execute", color="#2ec4b6", fontcolor="#2ec4b6", penwidth=2.4];
+  exec:e  -> integ:w   [label="register"];
+  integ:e -> out:w     [label="result"];
+  out     -> eval      [label="trace status", style=dashed];
+  eval    -> evo:g     [label="pass/fail 접지(D4)", style=dashed, color="#2ec4b6", fontcolor="#2ec4b6", penwidth=1.8];
+}
