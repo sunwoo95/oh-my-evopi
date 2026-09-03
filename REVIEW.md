@@ -716,3 +716,15 @@ showPrompt 가 자신이 추가한 구성요소(제목·placeholder·힌트·inp
 ### [배포완료] 2026-09-03 — v0.9.6 게시 (로그인 화면 정리판)
 main f8e97f9 + gh-pages 182897f. 전체 pre-commit green. 라이브 검증: sha 일치,
 격리 설치 → 0.9.6, clearActivePrompt 반영 확인.
+
+### [배포완료] 2026-09-03 — v0.9.7 게시 (auth-pool 실 401 분류 수정)
+격리 샌드박스 전체 기능점검(/tmp/evopi-sandbox, env -i + mock 업스트림, 20항목)에서
+발견: `EVOPI_API_KEY_POOL_*` 로테이션 미동작. 원인 = classify.ts STATUS_MESSAGE_PATTERNS
+(omp 동일)가 SDK 에러 문구 `"401 invalid openai api key"`(선두 상태코드)를 미인식 →
+스트림 경로(문자열만 입력)에서 non-retryable 판정. 수정: 선두 상태코드 패턴 추가 +
+SDK 형식 회귀 테스트 2건(ba3faaa). 39/39 pass, tsgo 0, pre-commit green.
+main 4b766d8 + gh-pages b6fa07c. 라이브 검증: sha 일치 20s, 격리 설치 → 0.9.7,
+mock 401 → `bad-key → good-key` 무음 전환 확인. 나머지 19항목(설치·Bun 게이트·
+설정경로·CLI·print/json/continue·ipython 실커널·hermes dialect·Databricks 헤더·
+evo on/off·update) PASS. 관찰: 옵션을 서브커맨드 앞에 두면 프롬프트로 해석됨
+(`evopi --offline model list`); bwrap은 이 호스트 커널에서 user namespace 불가.
