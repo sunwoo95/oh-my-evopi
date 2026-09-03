@@ -13,7 +13,7 @@
  *    refuse if the tag vX.Y.Z already exists locally or on origin
  * 2. Bump (or set) the version with `npm version -ws --include-workspace-root`,
  *    verify every package.json (npm's exit code is advisory, see npmVersionVerified),
- *    then sync inter-package ranges and reinstall to rebuild the lockfile
+ *    then sync inter-package ranges and update only the lockfile's workspace version fields
  * 3. Update CHANGELOG.md files: aggregate .changes/*.md fragments into a
  *    [version] - date section, git rm the consumed fragments
  * 4. Commit ("Release vX.Y.Z") and create a plain lightweight tag vX.Y.Z on it
@@ -148,8 +148,8 @@ function workspacePackageJsonPaths() {
  * behind (0.10.0 → 0.11.0 no longer satisfies a sibling's `^0.10.0`), that reify
  * resolves the sibling from the registry, hits E404 for the unpublished @evopi/*
  * packages and exits 1 — after the versions were already written (NEXT-STEPS E3).
- * The exit code is therefore advisory: the files are the source of truth, and
- * sync-versions + the fresh `npm install` below rebuild the lockfile anyway.
+ * The exit code is therefore advisory: the files are the source of truth; the
+ * caller restores the pre-bump lockfile and updates only its workspace versions.
  */
 function npmVersionVerified(target, expectedVersion) {
 	const npmArgs = ["version", target, "--workspaces", "--include-workspace-root", "--no-git-tag-version"];
@@ -194,10 +194,18 @@ function bumpOrSetVersion(target) {
 		console.log(`Setting explicit version (${target})...`);
 	}
 
+	// Keep the committed lockfile as the source of truth: `npm version`'s failed
+	// reify (E404, see npmVersionVerified) can leave package-lock.json half
+	// rewritten, and a from-scratch `npm install` re-resolves every range (silent
+	// dependency upgrades — the 0.12.0 attempt also dropped @oh-my-pi/pi-natives
+	// and made `npm ci` fail in the release workflow). Snapshot → bump → restore →
+	// update only the workspace version fields with --package-lock-only.
+	const lockfile = "package-lock.json";
+	const lockfileBefore = readFileSync(lockfile, "utf-8");
 	npmVersionVerified(target, previewVersion(target));
+	writeFileSync(lockfile, lockfileBefore);
 	run("node scripts/sync-versions.js");
-	run("npx shx rm -rf node_modules packages/*/node_modules package-lock.json");
-	run("npm install");
+	run("npm install --package-lock-only --ignore-scripts --no-audit --no-fund");
 	return getVersion();
 }
 

@@ -58,8 +58,8 @@ node scripts/release.mjs 0.12.0
 
 1. refuses if the tree is dirty, the branch is not `main`, or the tag exists;
 2. bumps every `package.json` with `npm version -ws --include-workspace-root`
-   (exit code advisory, files verified), runs `scripts/sync-versions.js` and a
-   fresh `npm install` to rebuild the lockfile;
+   (exit code advisory, files verified), restores the committed lockfile, runs
+   `scripts/sync-versions.js` and `npm install --package-lock-only` so only the workspace version fields change (no dependency re-resolution);
 3. aggregates `.changes/*.md` fragments into each package `CHANGELOG.md` and
    `git rm`s the consumed fragments;
 4. commits `Release vX.Y.Z` (the husky pre-commit hook runs `npm run check`) and
@@ -196,7 +196,7 @@ version the workflow already published.
 
 ```sh
 # 1. bump + lockfile + changelog, commit on main (or let release.mjs do 1-2 and stop before the tag push)
-npm run version:patch                     # npm version -ws + sync-versions + npm install
+npm run version:patch                     # npm version -ws + sync-versions (then: npm install --package-lock-only)
 git add -A && git commit -m "Bump version to X.Y.Z"
 
 # 2. build and pack against the Pages base URL
