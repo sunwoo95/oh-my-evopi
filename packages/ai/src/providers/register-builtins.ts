@@ -20,6 +20,10 @@ import type { OpenAICodexResponsesOptions } from "./openai-codex-responses.js";
 import type { OpenAICompletionsOptions } from "./openai-completions.js";
 import type { OpenAIResponsesOptions } from "./openai-responses.js";
 
+// Indirection keeps bundlers (esbuild browser builds) from statically following
+// the node-only AWS SDK import chain; upstream parity (prime register-builtins).
+const importNodeOnlyProvider = (specifier: string): Promise<unknown> => import(specifier);
+
 interface LazyProviderModule<
 	TApi extends Api,
 	TOptions extends StreamOptions,
@@ -308,7 +312,7 @@ function loadBedrockProviderModule(): Promise<
 	if (bedrockProviderModuleOverride) {
 		return Promise.resolve(bedrockProviderModuleOverride);
 	}
-	bedrockProviderModulePromise ||= import("./amazon-bedrock.js").then((module) => {
+	bedrockProviderModulePromise ||= importNodeOnlyProvider("./amazon-bedrock.js").then((module) => {
 		const provider = module as BedrockProviderModule;
 		return {
 			stream: provider.streamBedrock,

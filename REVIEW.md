@@ -674,3 +674,29 @@ node-내장 모듈 해석 실패(62 errors).
 main push(897cb64) + gh-pages(abcd8b7, v0.9.1-0.9.3 보존). 7 타르볼(+evopi-mnemopi
 신규, 전이 체인 재작성 검증). 라이브 sha 일치, 격리 prefix curl|sh → 195 pkgs·
 0.9.4·dialect-mode/auth-pool-stream dist·mnemopi 설치 확인.
+
+## [체크포인트] 2026-09-03 — provider 설정 전수 점검 + 버그픽스 2건
+
+사용자 리포트 2건 점검·수정:
+1. **Anthropic OAuth "redirect_uri 누락"**: 코드 무결 판정 — oauth 모듈은 업스트림과
+   바이트 동일, dist 실측 URL 완전(427자, 8파라미터 전부 포함, redirect_uri=
+   http://localhost:53692/callback). 원인 = 터미널 줄바꿈된 긴 URL의 **부분
+   복사/부분 링크화**로 뒤 파라미터 소실. 대화상자에 이미 복사 단축키(`c`/`alt+c`,
+   SSH용 OSC52) 존재 — 안내 문구 1줄 추가(잘림 경고).
+2. **Databricks 로그인 이중 커서**: `showPrompt`가 단일 input 인스턴스를 재-add —
+   2연속 프롬프트(URL→토큰, M-Databricks가 최초 소비자)에서 커서 2개가 같은 버퍼를
+   미러. 수정 = 재-add 전 `removeChild(this.input)` 디태치. 회귀 테스트 추가
+   (수정 제거 시 실패 역검증 완료).
+3. **[선재 결함 해소] check:browser-smoke**: 전수 diff 중 근본 원인 발견 —
+   업스트림 register-builtins.ts의 `importNodeOnlyProvider` 간접화(esbuild가
+   bedrock→@aws-sdk 체인을 정적 추적 못 하게 하는 장치)가 evopi에서 소실.
+   복원 → **SMOKE=0, pre-commit 전체 게이트 복구** (어제 [선재 결함 발견] 항목 종결).
+
+**provider 설정 전수 점검 결과** (vs prime 업스트림 diff):
+- oauth 3종(anthropic/github-copilot/openai-codex)·pkce·types: **바이트 동일**
+- oauth-page.ts: 브랜딩만 상이(의도됨 — evopi 마크 SVG)
+- oauth.ts·env-api-keys.ts·bedrock-provider.ts·api-registry.ts·models.ts·
+  cache-pricing.ts·openrouter-reasoning.ts·providers/ 15파일: **동일**
+- 의도된 차이 2건: anthropic.ts(Bearer-only, databricks)·register-builtins.ts(복원됨)
+- evopi 고유: databricks-auth(테스트 green)·dialect 배럴 export·prime interop 3곳
+검증: 관련 배치 40 pass, tsgo 0.

@@ -159,6 +159,9 @@ export class LoginDialogComponent extends Container implements Focusable {
 		this.authUrl = url;
 		this.addSectionTitle("Browser sign-in");
 		this.addMutedText("The sign-in page should already be opening. If it did not open, use the link below.");
+		// Long OAuth URLs wrap across terminal lines; selecting the wrapped text
+		// copies only part of it and drops query params (e.g. redirect_uri).
+		this.addMutedText("Tip: copy the link with the key hint below — selecting wrapped text can truncate it.");
 		this.contentContainer.addChild(new Spacer(1));
 		this.addLabel("Sign-in link");
 		const linkedUrl = getCapabilities().hyperlinks ? `\x1b]8;;${url}\x07${url}\x1b]8;;\x07` : url;
@@ -218,6 +221,10 @@ export class LoginDialogComponent extends Container implements Focusable {
 	 * Note: Does NOT clear content, appends to existing (preserves URL from showAuth)
 	 */
 	showPrompt(message: string, placeholder?: string): Promise<string> {
+		// Sequential prompts (e.g. Databricks URL → token) reuse the single input
+		// component: detach it from the previous section first, or it renders
+		// twice with two cursors mirroring the same buffer.
+		this.contentContainer.removeChild(this.input);
 		this.addSectionSpacer();
 		this.addSectionTitle(message);
 		if (placeholder) {

@@ -200,6 +200,27 @@ describe("LoginDialogComponent", () => {
 		await expect(second).resolves.toBe("pk");
 	});
 
+	it("renders sequential prompts with a single input cursor (Databricks URL then token)", async () => {
+		const dialog = new LoginDialogComponent(createFakeTui(), "databricks", () => {}, "Databricks");
+
+		const first = dialog.showPrompt("Enter Databricks base URL (workspace or serving-endpoints URL):");
+		for (const ch of "https://ws.cloud.databricks.com") dialog.handleInput(ch);
+		dialog.handleInput("\r");
+		await expect(first).resolves.toBe("https://ws.cloud.databricks.com");
+
+		void dialog.showPrompt("Enter Databricks auth token:", "dapi...");
+		for (const ch of "dapi-secret") dialog.handleInput(ch);
+		const output = stripAnsi(dialog.render(88).join("\n"));
+
+		// Both section titles remain as a step log, but the live input (with the
+		// current buffer) must render exactly once — a second copy means the
+		// detach in showPrompt regressed (two cursors mirroring one buffer).
+		expect(output).toContain("Enter Databricks base URL");
+		expect(output).toContain("Enter Databricks auth token:");
+		const inputEchoes = output.split("dapi-secret").length - 1;
+		expect(inputEchoes).toBe(1);
+	});
+
 	it("renders API key prompts without shell input markers", () => {
 		const dialog = new LoginDialogComponent(createFakeTui(), "openai", () => {}, "OpenAI");
 
