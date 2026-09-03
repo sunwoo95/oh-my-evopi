@@ -12068,12 +12068,12 @@ export const MODELS = {
 			input: ["text", "image"],
 			cost: {
 				input: 0.3,
-				output: 1.2,
+				output: 1.1,
 				cacheRead: 0.04,
 				cacheWrite: 0,
 			},
 			contextWindow: 131072,
-			maxTokens: 16384,
+			maxTokens: 117964,
 		} satisfies Model<"openai-completions">,
 		"meta/muse-spark-1.1": {
 			id: "meta/muse-spark-1.1",
@@ -14824,11 +14824,11 @@ export const MODELS = {
 			cost: {
 				input: 2,
 				output: 6,
-				cacheRead: 0.19999999999999998,
+				cacheRead: 0.25,
 				cacheWrite: 0,
 			},
 			contextWindow: 1048576,
-			maxTokens: 131072,
+			maxTokens: 262144,
 		} satisfies Model<"openai-completions">,
 		"qwen/qwen3.8-27b": {
 			id: "qwen/qwen3.8-27b",
@@ -15817,7 +15817,7 @@ export const MODELS = {
 				cacheWrite: 0,
 			},
 			contextWindow: 1310720,
-			maxTokens: 131072,
+			maxTokens: 943718,
 		} satisfies Model<"openai-completions">,
 		"~z-ai/glm-latest": {
 			id: "~z-ai/glm-latest",
