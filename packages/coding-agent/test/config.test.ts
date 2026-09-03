@@ -395,7 +395,8 @@ describe("detectInstallMethod", () => {
 		});
 	});
 
-	test("does not self-update when npm install path is not writable", () => {
+	// chmod is not enforced for uid 0, so the unwritable-path branch cannot be exercised as root.
+	test.skipIf(process.getuid?.() === 0)("does not self-update when npm install path is not writable", () => {
 		const { packageDir } = createNpmPrefixInstall();
 		chmodSync(packageDir, 0o500);
 

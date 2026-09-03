@@ -108,6 +108,20 @@ evopi --offline
 }
 ```
 
+### Kernel (Python REPL)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `kernel.cellTimeoutMs` | number | `1800000` (30 min) | Wall-clock cap per `ipython` cell. On expiry the kernel is interrupted; a cell that ignores the interrupt (e.g. `SIG_IGN`) gets its kernel discarded and the next cell boots a fresh one restored from the last snapshot. `0` disables the cap. |
+
+Related environment variables (override settings):
+
+| Variable | Effect |
+|----------|--------|
+| `EVOPI_KERNEL_CELL_TIMEOUT_MS` | Per-cell cap in ms; `0` or `off` disables. Beats `kernel.cellTimeoutMs`. |
+| `EVOPI_KERNEL_INHERIT_SECRETS` | `1` passes the host's LLM-provider credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `EVOPI_API_KEY_POOL_*`, …) into the kernel. By default they are withheld — model-authored code and everything `bash()` spawns cannot read them. Project-facing credentials (`GH_TOKEN`, AWS IAM/profile, `GOOGLE_APPLICATION_CREDENTIALS`, `SERPER_API_KEY`) are always inherited. |
+| `EVOPI_PERMISSION_GATE` | `block` (default), `warn`, or `off`. The intent-layer gate inspects `bash` commands and `ipython` cells that reach a shell (`bash(...)`, `!cmd`, `os.system`/`subprocess`) for destructive patterns; `block` prompts in the TUI and refuses when there is no UI. |
+
 ### Compaction
 
 | Setting | Type | Default | Description |

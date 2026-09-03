@@ -49,6 +49,8 @@ export interface KernelManagerOptions {
 	python?: string;
 	cwd?: string;
 	env?: Record<string, string>;
+	/** Pass the host's LLM-provider credentials into the kernel env. Defaults to `EVOPI_KERNEL_INHERIT_SECRETS`. */
+	inheritSecrets?: boolean;
 	sessionId?: string;
 	hostHandlers?: HostRequestHandlers;
 	pythonSkills?: readonly KernelPythonSkill[];
@@ -70,6 +72,13 @@ export interface ExecuteOptions {
 	onLateSentAgentMessage?: (message: KernelSentAgentMessage) => void;
 	/** Cap stdout / stderr / result at this many characters. Default 65536. */
 	maxOutputChars?: number;
+	/**
+	 * Wall-clock cap for this cell. On expiry the kernel is interrupted; if the
+	 * cell still doesn't yield (a tight loop the interrupt can't reach) the kernel
+	 * is discarded and the next cell boots a fresh one restored from the last
+	 * snapshot. Omit or 0 for no cap.
+	 */
+	timeoutMs?: number;
 	/** Synthetic host cell (snapshot/restore/list); excluded from lastCellCode attribution. */
 	internal?: boolean;
 	/** The protocol repair's own restore; exempt from waiting on the repair it belongs to. */

@@ -706,7 +706,7 @@ describe("ACP mode preserves prime-agent features", () => {
 			`a failed turn must not report a clean stop reason (got ${JSON.stringify(failure)})`,
 		).toBe(true);
 		// The client must be told the turn failed, not handed a bare protocol error.
-		expect(JSON.stringify(failure)).toContain("prime-agent turn failed");
+		expect(JSON.stringify(failure)).toContain("evopi turn failed");
 
 		// The point of the test: a pre-turn count watermark would have skipped the
 		// failure, because after the rebuild it sits below that count.
@@ -760,7 +760,7 @@ describe("ACP mode preserves prime-agent features", () => {
 			clientCapabilities: {},
 		});
 
-		expect(init.agentInfo).toMatchObject({ name: "prime-agent" });
+		expect(init.agentInfo).toMatchObject({ name: "evopi" });
 		expect(typeof init.agentInfo?.version).toBe("string");
 		// Namespaced only: unknown root keys are reserved for future ACP fields.
 		expect(init._meta).toHaveProperty(EVOPI_META_NAMESPACE);

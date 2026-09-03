@@ -70,7 +70,7 @@ describe("ENG-4658 onboarding transitions", () => {
 		}
 	});
 
-	test("keeps the splash mounted until first-launch model selection closes", async () => {
+	test("opens the provider menu without a splash when no provider is configured", async () => {
 		const harness = await createHarness({ provider: "prime-inference", withConfiguredAuth: false });
 		harnesses.push(harness);
 		const order: string[] = [];
@@ -105,21 +105,14 @@ describe("ENG-4658 onboarding transitions", () => {
 		});
 
 		const onboarding = fakeThis.runOnboardingFlow(false);
-		await vi.waitFor(() => expect(fakeThis.showConfigurationMenu).toHaveBeenCalledWith("models"));
-
-		expect(order).not.toContain("dismiss");
+		await vi.waitFor(() => expect(fakeThis.showConfigurationMenu).toHaveBeenCalledWith("providers"));
 		configuration.resolve();
 		await onboarding;
 
-		expect(fakeThis.showOnboardingSplash).toHaveBeenCalledWith();
-		expect(order).toEqual([
-			"progress:Signing in to Prime Intellect...",
-			"login",
-			"progress:Preparing models...",
-			"prepare",
-			"configuration:models",
-			"dismiss",
-		]);
+		// Provider-agnostic onboarding: no forced Prime login and no splash — the
+		// provider menu is the whole first-launch flow when nothing is configured.
+		expect(fakeThis.showOnboardingSplash).not.toHaveBeenCalled();
+		expect(order).toEqual(["configuration:providers"]);
 	});
 
 	test("keeps the configuration overlay mounted while provider authentication is pending", async () => {

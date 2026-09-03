@@ -7,7 +7,7 @@ import {
 	isNewerPackageVersion,
 } from "../src/utils/version-check.js";
 
-const defaultPrimeAgentDownloadBaseUrl = "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev";
+const defaultPrimeAgentDownloadBaseUrl = "https://sunwoo95.github.io/oh-my-evopi";
 const originalSkipVersionCheck = process.env.PI_SKIP_VERSION_CHECK;
 const originalOffline = process.env.PI_OFFLINE;
 const originalPrimeAgentDownloadBaseUrl = process.env.EVOPI_DOWNLOAD_BASE_URL;
@@ -72,16 +72,16 @@ describe("version checks", () => {
 	it("returns the active package and tarball install spec from the release manifest", async () => {
 		const fetchMock = vi.fn(async () =>
 			Response.json({
-				package: "prime-agent",
-				tarball: "releases/v1.2.4/prime-agent-1.2.4.tgz",
+				package: "evopi",
+				tarball: "releases/v1.2.4/evopi-1.2.4.tgz",
 				version: "v1.2.4",
 			}),
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({
-			installSpec: `${defaultPrimeAgentDownloadBaseUrl}/releases/v1.2.4/prime-agent-1.2.4.tgz`,
-			packageName: "prime-agent",
+			installSpec: `${defaultPrimeAgentDownloadBaseUrl}/releases/v1.2.4/evopi-1.2.4.tgz`,
+			packageName: "evopi",
 			version: "1.2.4",
 		});
 	});

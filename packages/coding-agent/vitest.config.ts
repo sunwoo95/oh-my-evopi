@@ -13,6 +13,9 @@ export default defineConfig({
 		environment: "node",
 		testTimeout: 30000,
 		env: { DO_NOT_TRACK: "1" },
+		// Ambient provider credentials on the host (e.g. a sandbox exporting
+		// AWS_BEARER_TOKEN_BEDROCK) must not make providers "configured" in tests.
+		setupFiles: ["./test/setup/isolate-provider-env.ts"],
 		tags: [
 			{
 				name: "process-stress",

@@ -6,6 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 import { v4 as uuid } from "uuid";
 import { reapKernelOrphanProcesses, recordOrphanProcessState } from "../orphan-process-journal.js";
 import { ensureKernelPython } from "./bootstrap.js";
+import { buildKernelEnv, KERNEL_INHERIT_SECRETS_ENV } from "./kernel-env.js";
 import {
 	AGENT_MESSAGE_DISPLAY_MIME,
 	ATTACHMENT_DISPLAY_MIME,
@@ -55,6 +56,9 @@ const REPAIR_STEP_TIMEOUT_MS = 30_000;
 const MAX_HANDLED_HOST_REQUEST_IDS = 1024;
 // Cap for unattributed background output buffered between and during cells.
 const MAX_BACKGROUND_OUTPUT_CHARS = 64 * 1024;
+// Diagnostics tail kept from the kernel's stderr; only the last 1 KiB is ever
+// surfaced, so an unbounded buffer would just leak on a chatty runtime.
+const MAX_KERNEL_STDERR_CHARS = 64 * 1024;
 
 /** ExecuteResult plus the raw fields of the request's `done` event (state ops). */
 interface InternalExecuteResult extends ExecuteResult {
@@ -136,7 +140,15 @@ function asReasonArray(value: unknown): { name: string; reason: string }[] {
 export class ReplKernelManager {
 	private readonly options: Pick<
 		KernelManagerOptions,
-		"python" | "cwd" | "env" | "sessionId" | "hostHandlers" | "pythonSkills" | "snapshot" | "bootstrapCode"
+		| "python"
+		| "cwd"
+		| "env"
+		| "inheritSecrets"
+		| "sessionId"
+		| "hostHandlers"
+		| "pythonSkills"
+		| "snapshot"
+		| "bootstrapCode"
 	>;
 	private readonly handledHostRequestIds = new Set<string>();
 	private child?: ChildProcess;
@@ -188,6 +200,7 @@ export class ReplKernelManager {
 			python: options.python,
 			cwd: options.cwd,
 			env: options.env,
+			inheritSecrets: options.inheritSecrets,
 			sessionId: options.sessionId,
 			hostHandlers: options.hostHandlers,
 			pythonSkills: options.pythonSkills,
@@ -201,7 +214,15 @@ export class ReplKernelManager {
 	}
 
 	private appendKernelDiagnostic(message: string): void {
-		this.kernelStderr += `[kernel] ${message.endsWith("\n") ? message : `${message}\n`}`;
+		this.appendKernelStderr(`[kernel] ${message.endsWith("\n") ? message : `${message}\n`}`);
+	}
+
+	private appendKernelStderr(text: string): void {
+		const combined = this.kernelStderr + text;
+		this.kernelStderr =
+			combined.length > MAX_KERNEL_STDERR_CHARS
+				? combined.slice(combined.length - MAX_KERNEL_STDERR_CHARS)
+				: combined;
 	}
 
 	async start(options: KernelStartOptions = {}): Promise<void> {
@@ -249,15 +270,21 @@ export class ReplKernelManager {
 			throw new Error("Kernel was disposed during startup");
 		}
 
+		// bash.py journals its process groups under this pid so the host can
+		// reap them if the runtime dies without running its shutdown hook.
+		const kernelEnv = buildKernelEnv(process.env, {
+			overrides: { ...this.options.env, EVOPI_KERNEL_OWNER_PID: String(process.pid) },
+			inheritSecrets: this.options.inheritSecrets,
+		});
+		if (kernelEnv.withheld.length > 0) {
+			this.appendKernelDiagnostic(
+				`withheld ${kernelEnv.withheld.length} provider credential env var(s) from the kernel ` +
+					`(${kernelEnv.withheld.join(", ")}); set ${KERNEL_INHERIT_SECRETS_ENV}=1 to pass them through`,
+			);
+		}
 		const child = spawn(python, ["-m", "rlm.repl"], {
 			cwd: this.options.cwd,
-			// bash.py journals its process groups under this pid so the host can
-			// reap them if the runtime dies without running its shutdown hook.
-			env: {
-				...process.env,
-				...this.options.env,
-				EVOPI_KERNEL_OWNER_PID: String(process.pid),
-			},
+			env: kernelEnv.env,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		this.child = child;
@@ -329,7 +356,7 @@ export class ReplKernelManager {
 		});
 
 		child.stderr?.on("data", (buf: Buffer) => {
-			this.kernelStderr += buf.toString();
+			this.appendKernelStderr(buf.toString());
 		});
 
 		child.on("error", (err) => {
@@ -718,7 +745,8 @@ export class ReplKernelManager {
 
 	async execute(code: string, opts: ExecuteOptions = {}): Promise<ExecuteResult> {
 		await this.waitForProtocolRepair(opts.signal);
-		const result = await this.enqueueExecute(code, opts);
+		const timeoutMs = opts.timeoutMs !== undefined && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
+		const result = await this.enqueueExecute(code, opts, timeoutMs);
 		// Refresh the on-disk snapshot after real work so a later resume (or a
 		// crash before graceful shutdown) revives the most recent namespace.
 		if (result.status === "ok") {
@@ -795,14 +823,42 @@ export class ReplKernelManager {
 			}
 
 			const controller = new AbortController();
-			executionTimeout = globalThis.setTimeout(() => controller.abort(), executionTimeoutMs);
+			let timedOut = false;
+			executionTimeout = globalThis.setTimeout(() => {
+				timedOut = true;
+				controller.abort();
+			}, executionTimeoutMs);
 			executionTimeout.unref?.();
 			const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
-			return await this.executeInner(requestFields, code, { ...opts, signal }, started);
+			const result = await this.executeInner(requestFields, code, { ...opts, signal }, started);
+			if (timedOut && !opts.signal?.aborted && !opts.internal) {
+				return this.settleTimedOutCell(result, executionTimeoutMs);
+			}
+			return result;
 		} finally {
 			if (executionTimeout) globalThis.clearTimeout(executionTimeout);
 			resolveNext();
 		}
+	}
+
+	/**
+	 * A user cell hit its wall-clock cap. The interrupt already went out; if the
+	 * cell is still the active execution the runtime never acknowledged it (a
+	 * loop the signal can't reach), so the child is discarded and the next cell
+	 * lazily boots a replacement restored from the last snapshot.
+	 */
+	private settleTimedOutCell(result: InternalExecuteResult, timeoutMs: number): InternalExecuteResult {
+		const stillRunning = this.activeExecution !== undefined;
+		if (stillRunning) this.killChildToIdle();
+		const note = stillRunning
+			? `[cell exceeded ${timeoutMs} ms and did not stop on interrupt; kernel restarted — variables revert to the last snapshot]`
+			: `[cell exceeded ${timeoutMs} ms and was interrupted]`;
+		return {
+			...result,
+			status: "error",
+			error: { ename: "KernelCellTimeout", evalue: `cell exceeded ${timeoutMs} ms`, traceback: [] },
+			stderr: result.stderr ? `${result.stderr}\n${note}` : note,
+		};
 	}
 
 	private async executeInner(

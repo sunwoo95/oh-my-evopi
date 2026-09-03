@@ -35,6 +35,13 @@ export interface EvoSettings {
 	enabled?: boolean;
 }
 
+export const DEFAULT_KERNEL_CELL_TIMEOUT_MS = 30 * 60_000;
+
+export interface KernelSettings {
+	/** Wall-clock cap per ipython cell in ms. 0 disables. Default 30 minutes. `EVOPI_KERNEL_CELL_TIMEOUT_MS` overrides. */
+	cellTimeoutMs?: number;
+}
+
 export interface HarnessSettings {
 	// Harness-entry injection selection for the system prompt (B3/M17, R10).
 	// "lexicographic" (default) = prime stock order+truncate. "mmr" = MMR-diversified,
@@ -164,6 +171,7 @@ export interface Settings {
 	autoRefine?: AutoRefineSettings;
 	evo?: EvoSettings; // evo-layer (grounded-refine) toggle; default off (prime stock behavior)
 	harness?: HarnessSettings; // harness injection selection; default lexicographic (prime stock)
+	kernel?: KernelSettings;
 	agentTraces?: AgentTracesSettings;
 	telemetry?: TelemetrySettings;
 	branchSummary?: BranchSummarySettings;
@@ -943,6 +951,20 @@ export class SettingsManager {
 		const selection = this.settings.harness?.selection;
 		const useMmr = selection === "mmr" || (selection === undefined && this.resolveEvoEnabled() === true);
 		return { useMmr, charBudget: this.settings.harness?.charBudget };
+	}
+
+	/**
+	 * Per-cell wall-clock cap for the ipython kernel. `EVOPI_KERNEL_CELL_TIMEOUT_MS`
+	 * ("0"/"off" disables) beats `kernel.cellTimeoutMs`; default 30 minutes.
+	 */
+	getKernelCellTimeoutMs(): number {
+		const raw = (process.env.EVOPI_KERNEL_CELL_TIMEOUT_MS ?? "").trim().toLowerCase();
+		if (raw === "off" || raw === "none") return 0;
+		if (/^\d+$/.test(raw)) return Number(raw);
+		const configured = this.settings.kernel?.cellTimeoutMs;
+		if (typeof configured === "number" && Number.isFinite(configured) && configured >= 0)
+			return Math.floor(configured);
+		return DEFAULT_KERNEL_CELL_TIMEOUT_MS;
 	}
 
 	getAutoRefineSettings(): { enabled: boolean; turnInterval: number; compact: boolean; cooldownMs: number } {

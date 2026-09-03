@@ -118,9 +118,16 @@ let validateThemeJson: Validator<TProperties, typeof ThemeJsonSchema> | undefine
 let themeValidatorPromise: Promise<void> | undefined;
 
 export function preloadThemeValidator(): Promise<void> {
-	themeValidatorPromise ??= import("typebox/compile").then(({ Compile }) => {
-		validateThemeJson = Compile(ThemeJsonSchema);
-	});
+	themeValidatorPromise ??= import("typebox/compile")
+		.then(({ Compile }) => {
+			validateThemeJson = Compile(ThemeJsonSchema);
+		})
+		.catch(() => {
+			// A failed lazy load (module missing, or the host torn down mid-import)
+			// must not become an unhandled rejection; the next call retries and
+			// theme loading keeps working unvalidated meanwhile.
+			themeValidatorPromise = undefined;
+		});
 	return themeValidatorPromise;
 }
 
@@ -882,9 +889,15 @@ let codeHighlighterPromise: Promise<void> | undefined;
  * before the first render to guarantee highlighted code blocks.
  */
 export function preloadCodeHighlighter(): Promise<void> {
-	codeHighlighterPromise ??= import("./code-highlighter.js").then((module) => {
-		codeHighlighter = module;
-	});
+	codeHighlighterPromise ??= import("./code-highlighter.js")
+		.then((module) => {
+			codeHighlighter = module;
+		})
+		.catch(() => {
+			// Same contract as the validator: highlightCode already falls back to
+			// plain text, so a failed load is retried on the next call, not thrown.
+			codeHighlighterPromise = undefined;
+		});
 	return codeHighlighterPromise;
 }
 

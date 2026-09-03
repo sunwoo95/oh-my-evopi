@@ -4053,22 +4053,21 @@ describe("InteractiveMode Prime CLI onboarding", () => {
 		expect(fakeThis.showConfigurationMenu).toHaveBeenCalledWith("models");
 	});
 
-	test("opens Prime login before the Models tab when no models are available", async () => {
+	test("opens the provider menu instead of a forced Prime login when no models are available", async () => {
 		const fakeThis = createPrimeCliHarness(false);
 		fakeThis.connectionState = createConnectionState({ model: undefined });
 		fakeThis.getModelCandidates = vi.fn(async () => []);
 		const showProgress = vi.fn();
 		const dismiss = vi.fn();
 		fakeThis.showOnboardingSplash = vi.fn(async () => ({ showProgress, dismiss }));
-		fakeThis.createAuthFlows = vi.fn(() => ({
-			runPrimeInferenceLogin: vi.fn(async () => ({
-				status: "success" as const,
-				providerId: PRIME_INFERENCE_PROVIDER_ID,
-				providerName: "Prime Inference",
-				authType: "api_key" as const,
-				kind: "provider" as const,
-			})),
+		const runPrimeInferenceLogin = vi.fn(async () => ({
+			status: "success" as const,
+			providerId: PRIME_INFERENCE_PROVIDER_ID,
+			providerName: "Prime Inference",
+			authType: "api_key" as const,
+			kind: "provider" as const,
 		}));
+		fakeThis.createAuthFlows = vi.fn(() => ({ runPrimeInferenceLogin }));
 		fakeThis.prepareForModelSelectionAfterLogin = vi.fn(async () => true);
 		const configuration = createDeferred<void>();
 		fakeThis.showConfigurationMenu = vi.fn(() => configuration.promise);
@@ -4076,17 +4075,15 @@ describe("InteractiveMode Prime CLI onboarding", () => {
 		const onboarding = runOnboardingFlow.call(fakeThis, false);
 		await flushAsyncWork();
 
-		expect(fakeThis.showOnboardingSplash).toHaveBeenCalledWith();
-		expect(showProgress).toHaveBeenNthCalledWith(1, "Signing in to Prime Intellect...");
-		expect(showProgress).toHaveBeenNthCalledWith(2, "Preparing models...");
-		expect(fakeThis.prepareForModelSelectionAfterLogin).toHaveBeenCalledTimes(1);
-		expect(fakeThis.showConfigurationMenu).toHaveBeenCalledWith("models");
-		expect(dismiss).not.toHaveBeenCalled();
+		// Provider-agnostic onboarding: no splash and no forced Prime login — the
+		// same provider surface as /login is shown so any provider can be connected.
+		expect(fakeThis.showOnboardingSplash).not.toHaveBeenCalled();
+		expect(runPrimeInferenceLogin).not.toHaveBeenCalled();
+		expect(fakeThis.showConfigurationMenu).toHaveBeenCalledWith("providers");
 
 		configuration.resolve();
 		await expect(onboarding).resolves.toBeUndefined();
-
-		expect(dismiss).toHaveBeenCalledTimes(1);
+		expect(dismiss).not.toHaveBeenCalled();
 	});
 });
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0] - 2026-09-03
+
+Framework self-evaluation cycle (SE rounds 1–12, see `docs/eval/SELF-EVAL.md`). Safety defaults changed; each is opt-out.
+
+- **Kernel no longer inherits evopi's provider credentials.** The Python REPL subprocess is spawned without `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `EVOPI_API_KEY_POOL_*` and the other keys the agent itself authenticates with, so model-authored code and everything `bash()` spawns cannot read them. Project-facing credentials (`GH_TOKEN`, AWS IAM/profile variables, `GOOGLE_APPLICATION_CREDENTIALS`, `SERPER_API_KEY`) pass through unchanged. Set `EVOPI_KERNEL_INHERIT_SECRETS=1` to restore the old behaviour; the withheld names are listed in the kernel diagnostics tail.
+- **Per-cell wall-clock cap.** `kernel.cellTimeoutMs` (default 30 minutes; `EVOPI_KERNEL_CELL_TIMEOUT_MS` overrides, `0`/`off` disables) interrupts a cell that runs too long. A cell that ignores the interrupt gets its kernel discarded; the next cell boots a fresh kernel restored from the last snapshot. The cell fails with `KernelCellTimeout` and a note saying which of the two happened.
+- **Permission gate covers `bash()` calls inside cells and protected-path writes.** The intent-layer gate previously inspected only `!cmd`, `os.system` and `subprocess`; it now also sees `rlm.bash(...)`, `os.popen`/`exec*`/`spawn*` and `pexpect`. Destructive-command coverage grew from 7 to 21 patterns (`--no-preserve-root`, raw block-device writes, `/etc/{passwd,shadow,sudoers}`, download-piped-to-shell, `kill -9 1`, shutdown/reboot, `nc -e`, …), and modifications of `.env`, `.git/`, `~/.ssh`, key files, `.aws/credentials`, `.gnupg` and `~/.evopi/agent/auth.json` now require confirmation (reads and `.env.example`-style files stay free).
+- Kernel stderr diagnostics are capped at 64 KiB instead of growing unbounded.
+- Lazy loading of the syntax highlighter and theme validator no longer surfaces an unhandled rejection when the import fails or the host shuts down mid-load; the load is retried on the next call.
+- Test suite: 20 stale assertions (rebranding, provider-agnostic onboarding, `hashline_edit` registration) updated to the evopi contract; ambient provider credentials are isolated from tests; root-only permission tests are skipped as root. `npm run check` now also runs `shellcheck` over the shell entry points.
+
 ## [0.9.1] - 2026-09-01
 
 - Fixed a v0.9.0 regression: the agents view's Inactive section was empty on a fresh view until a search was typed. The saved-session catalog now loads (progressively) when the view opens; it was previously deferred to search because the roster's boot seed carried the saved corpus, which the seed scoping removed.

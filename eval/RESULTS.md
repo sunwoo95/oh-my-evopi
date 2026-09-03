@@ -16,8 +16,10 @@ A second, independent reason the *evo-on injection* cannot run keyless: the
 grounded planner's LLM call (`grounded-refine.ts:113 defaultGroundedPlanner`)
 short-circuits to `undefined` when `getApiKeyAndHeaders` reports no key
 (`:126-128`), falling back to the built-in planner. evopi's own `@evopi/pi-ai`
-ships **no** mock provider (`rg 'createMockModel|registerMockApi|MOCK_API'
-packages/ai/src` = 0), so the in-product LLM path is unreachable without a key.
+does ship a keyless `faux` provider (`packages/ai/src/providers/faux.ts`,
+`registerFauxProvider`), but the grounded planner resolves credentials through
+`getApiKeyAndHeaders` for the *session's* model, so the in-product LLM path
+stays unreachable unless the session itself runs on a faux model.
 
 Per SPEC §7:78 the run is replaced by two faux-provider smokes that verify the
 two halves which *can* be verified keyless: the completion primitive routes with

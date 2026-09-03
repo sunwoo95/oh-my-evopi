@@ -106,6 +106,7 @@ evopi is built for long-running work, especially for evaluations in research. Th
 - **Daemon-backed continuity:** active sessions, Python REPL state, schedules, and subagents keep running when the terminal detaches and can be reattached later.
 - **Heartbeats and schedules:** `/heartbeat`, `rlm_heartbeat`, and `evopi schedule` can re-enter a session periodically or at a specific time.
 - **Persistent goals:** `/goal` keeps an objective and its progress active across turns until it is completed, paused, or cleared.
+- **Safe-by-default kernel:** the Python kernel never inherits evopi's own provider credentials (opt in with `EVOPI_KERNEL_INHERIT_SECRETS=1`), every cell has a wall-clock cap (`kernel.cellTimeoutMs`, default 30 min) after which a stuck kernel is discarded and rebuilt from its last snapshot, and the built-in permission gate (`EVOPI_PERMISSION_GATE`) screens shell commands — including `bash(...)` calls inside cells — for destructive patterns. See [settings.md](packages/coding-agent/docs/settings.md).
 - **Bounded autonomous mode:** `/autonomous` continues within configured turn, token, and time budgets and can run user-defined quality gates. A passed gate checks only what that gate verifies; reaching a limit does not imply task success.
 
 ## Repository Layout

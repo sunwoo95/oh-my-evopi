@@ -25,14 +25,30 @@ import { isToolCallEventType } from "../types.js";
 
 export type PermissionGateMode = "block" | "warn" | "off";
 
+// Deliberately tight: a missed destructive command costs far more than a
+// confirmation prompt. Patterns are matched against the whole command text, so
+// compound forms (`cd x && rm -rf /`) are caught without shell tokenizing.
 const DANGEROUS_PATTERNS: readonly RegExp[] = [
 	/\brm\s+(-[a-z]*r[a-z]*f?|--recursive)/i,
+	/\brm\b[^\n]*--no-preserve-root/i,
 	/\bsudo\b/i,
 	/\b(chmod|chown)\b[^\n]*\b777\b/i,
-	/\bmkfs\b/i,
+	/\b(chmod|chown)\b\s+-[a-z]*R[a-z]*\b[^\n]*\s\/(\s|$)/, // recursive mode/owner change rooted at /
+	/\bmkfs(\.[a-z0-9]+)?\b/i,
 	/\bdd\b[^\n]*\bof=\/dev\//i,
+	/\bshred\b[^\n]*\/dev\//i,
+	/\bcryptsetup\b/i,
 	/:\(\)\s*\{\s*:\|:&\s*\}\s*;/, // classic fork bomb
-	/>\s*\/dev\/sda\b/i,
+	/>\s*\/dev\/(sd[a-z]|hd[a-z]|vd[a-z]|nvme\d)/i, // raw write to a block device
+	/>\s*\/etc\/(passwd|shadow|sudoers)\b/i,
+	/\btee\b[^\n]*\/etc\/(passwd|shadow|sudoers)\b/i,
+	/\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/i, // pipe a download straight into a shell
+	/\b(ba|z)?sh\s+<\(\s*(curl|wget)\b/i,
+	/\beval\s+["']?\$\(\s*(curl|wget)\b/i,
+	/\bkill\s+-9\s+(-1|1)\b/,
+	/\b(shutdown|reboot|halt|poweroff)\b/i,
+	/\binit\s+0\b/,
+	/\bnc\b[^\n]*\s-[a-z]*[ec]\b/i, // netcat with -e/-c (remote shell)
 ];
 
 /** Whether a shell command string matches a destructive pattern the gate guards. */
@@ -40,17 +56,74 @@ export function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((p) => p.test(command));
 }
 
+/** Python constructs in an ipython cell that hand a string to a shell. */
+const IPYTHON_SHELL_MARKERS: readonly RegExp[] = [
+	/^\s*!/m, // IPython `!cmd` escape
+	/\bbash\s*\(/, // rlm.bash() — evopi's primary shell path from a cell
+	/\bos\.(system|popen|exec[lv]p?e?|spawn[lv]p?e?)\b/,
+	/\bsubprocess\b/,
+	/\bpexpect\b/,
+];
+
 /**
  * Extract the shell command a tool_call would run, if any. Covers `bash`
- * (`command`) and `ipython` shell escapes / process spawns (`code` containing
- * `!cmd`, `os.system`, or `subprocess`), which is evopi's default tool.
+ * (`command`) and `ipython` cells that reach a shell — the runtime's `bash()`
+ * helper, IPython `!cmd` escapes, and process spawns via os/subprocess/pexpect.
+ * The whole cell text is returned so the patterns see the command literal.
  */
 export function extractShellCommand(event: ToolCallEvent): string | undefined {
 	if (isToolCallEventType("bash", event)) return event.input.command;
 	if (isToolCallEventType("ipython", event)) {
 		const code = event.input.code;
 		if (typeof code !== "string") return undefined;
-		if (/^\s*!/m.test(code) || /\bos\.system\b/.test(code) || /\bsubprocess\b/.test(code)) return code;
+		if (IPYTHON_SHELL_MARKERS.some((marker) => marker.test(code))) return code;
+	}
+	return undefined;
+}
+
+// Files whose *modification* from a cell or shell command needs confirmation.
+// Reads stay free (dotenv loading, `cat .env`), and the ubiquitous example /
+// template variants are not secrets.
+const PROTECTED_PATH_PATTERNS: readonly RegExp[] = [
+	/(^|[\s"'/=])\.env(?!\.(example|sample|template|dist)\b)(\.[a-z0-9_-]+)?(?=$|[\s"'\\)])/i,
+	/(^|[\s"'])\.git(\/|["'\s]|$)/,
+	/(^|[\s"'~/])\.ssh(\/|["'\s]|$)/,
+	/\bid_(rsa|dsa|ecdsa|ed25519)\b/,
+	/[\w./-]+\.(pem|key|p12|pfx)\b/i,
+	/\.aws\/credentials\b/,
+	/(^|[\s"'~/])\.gnupg(\/|["'\s]|$)/,
+	/\/agent\/auth\.json\b/,
+];
+
+// Python / shell constructs that write, delete, or re-permission a path.
+const MUTATION_MARKERS: readonly RegExp[] = [
+	/\bedit\s*\(/, // Python edit skill
+	/\bopen\s*\([^)]*["'][wax]\+?b?["']/, // open(path, "w"/"a"/"x")
+	/\.write_(text|bytes)\s*\(/,
+	/\bshutil\.(rmtree|move|copy\w*)\s*\(/,
+	/\bos\.(remove|unlink|rename|replace|chmod|chown|truncate)\s*\(/,
+	/\.(unlink|rename|replace|chmod|rmdir|touch)\s*\(/, // pathlib
+	/(^|[^<>])>{1,2}\s*["']?[^\s"']/, // shell redirection into a file
+	/\b(rm|mv|cp|chmod|chown|truncate|tee|ln)\s/,
+	/\bsed\s+-[a-z]*i/,
+];
+
+/** The protected path an operation would modify, or undefined when it only reads / touches nothing sensitive. */
+export function protectedPathWrite(text: string): string | undefined {
+	if (!MUTATION_MARKERS.some((m) => m.test(text))) return undefined;
+	for (const pattern of PROTECTED_PATH_PATTERNS) {
+		const match = pattern.exec(text);
+		if (match) return match[0].trim().replace(/^["'/=]+|["'\\)]+$/g, "") || match[0].trim();
+	}
+	return undefined;
+}
+
+/** Text a tool_call would hand to a shell or interpreter: bash command or the whole ipython cell. */
+export function extractExecutableText(event: ToolCallEvent): string | undefined {
+	if (isToolCallEventType("bash", event)) return event.input.command;
+	if (isToolCallEventType("ipython", event)) {
+		const code = event.input.code;
+		return typeof code === "string" ? code : undefined;
 	}
 	return undefined;
 }
@@ -105,18 +178,28 @@ function permissionGateImpl(
 	pi.on("tool_call", async (event, ctx: ExtensionContext) => {
 		if (mode === "off") return undefined;
 		const command = extractShellCommand(event);
-		if (command === undefined || !isDangerousCommand(command)) return undefined;
+		let hazard: { kind: string; text: string } | undefined;
+		if (command !== undefined && isDangerousCommand(command)) {
+			hazard = { kind: "Dangerous command", text: command };
+		} else {
+			const text = extractExecutableText(event);
+			if (text !== undefined) {
+				const protectedPath = protectedPathWrite(text);
+				if (protectedPath !== undefined) hazard = { kind: `Write to protected path ${protectedPath}`, text };
+			}
+		}
+		if (!hazard) return undefined;
 
 		if (mode === "warn") {
-			ctx.ui.notify(`⚠️ Dangerous command allowed (warn mode): ${command}`, "warning");
+			ctx.ui.notify(`⚠️ ${hazard.kind} allowed (warn mode): ${hazard.text}`, "warning");
 			return undefined;
 		}
 
 		// mode === "block"
 		if (!ctx.hasUI) {
-			return { block: true, reason: `Dangerous command blocked (no UI for confirmation): ${command}` };
+			return { block: true, reason: `${hazard.kind} blocked (no UI for confirmation): ${hazard.text}` };
 		}
-		const choice = await ctx.ui.select(`⚠️ Dangerous command:\n\n  ${command}\n\nAllow?`, ["No", "Yes"]);
+		const choice = await ctx.ui.select(`⚠️ ${hazard.kind}:\n\n  ${hazard.text}\n\nAllow?`, ["No", "Yes"]);
 		if (choice !== "Yes") {
 			return { block: true, reason: "Blocked by user" };
 		}

@@ -238,6 +238,24 @@ The REPL runtime process executes model-generated Python and `bash()` commands w
 
 Provider credentials are resolved by the TypeScript host. The bounded model catalog crosses into Python as metadata; the full auth store does not.
 
+### Kernel environment and cell limits
+
+The kernel process inherits the host environment **minus the agent's own
+provider credentials** (`kernel-env.ts`): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`EVOPI_API_KEY_POOL_*` and the other keys evopi itself authenticates with are
+withheld, because provider calls never happen inside the kernel (they run in the
+host, and `rlm()` subagents are dispatched over `host_request`). Set
+`EVOPI_KERNEL_INHERIT_SECRETS=1` when a Python skill genuinely needs one.
+Project credentials such as `GH_TOKEN`, AWS IAM variables and `SERPER_API_KEY`
+pass through unchanged.
+
+Each user cell is capped by `kernel.cellTimeoutMs` (default 30 minutes,
+`EVOPI_KERNEL_CELL_TIMEOUT_MS` overrides, `0` disables). On expiry the runtime
+is interrupted; if the cell still does not yield, the child is discarded and the
+next cell lazily boots a replacement restored from the last snapshot. The model
+sees the cell fail with `KernelCellTimeout` and a note describing which of the
+two happened.
+
 ## Failure Modes
 
 | Failure | Behavior |

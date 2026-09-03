@@ -278,6 +278,8 @@ export interface IpythonToolOptions {
 	commandPrefix?: string;
 	/** Shell used by bash(). */
 	shellPath?: string;
+	/** Wall-clock cap per cell (ms); 0/undefined = none. See ExecuteOptions.timeoutMs. */
+	cellTimeoutMs?: number;
 	sessionId?: string;
 	/** Typed host request handlers for the kernel↔host bridge (rlm.run, goal.*, …). */
 	hostHandlers?: HostRequestHandlers;
@@ -562,6 +564,7 @@ async function executeWithBusyKernelChoice(
 	onWorkingMessage: (message?: string) => void,
 	onLateSentAgentMessage: ((toolCallId: string, message: KernelSentAgentMessage) => void) | undefined,
 	ctx: ExtensionContext | undefined,
+	timeoutMs: number | undefined,
 ): Promise<{ result: ExecuteResult; kernelRestarted: boolean }> {
 	let kernelRestarted = false;
 	while (true) {
@@ -570,6 +573,7 @@ async function executeWithBusyKernelChoice(
 			return {
 				result: await m.execute(code, {
 					signal,
+					timeoutMs,
 					onStream,
 					onLateSentAgentMessage: onLateSentAgentMessage
 						? (message) => onLateSentAgentMessage(toolCallId, message)
@@ -650,6 +654,7 @@ export function createIpythonToolDefinition(
 					setToolWorkingMessage,
 					options?.onLateSentAgentMessage,
 					ctx,
+					options?.cellTimeoutMs,
 				);
 
 				let text = r.stdout;

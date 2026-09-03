@@ -728,3 +728,37 @@ mock 401 → `bad-key → good-key` 무음 전환 확인. 나머지 19항목(설
 설정경로·CLI·print/json/continue·ipython 실커널·hermes dialect·Databricks 헤더·
 evo on/off·update) PASS. 관찰: 옵션을 서브커맨드 앞에 두면 프롬프트로 해석됨
 (`evopi --offline model list`); bwrap은 이 호스트 커널에서 user namespace 불가.
+
+## [체크포인트] 2026-09-03 — 핵심 하네스 점검 + 4자 마스터 아키텍처 비교 + 세미나 덱
+
+사용자 지시: evopi 핵심 하네스 점검, Claude Code(사용자 제공 8레이어 맵)·oh-my-pi·prime-agent 와
+마스터 아키텍처 비교, evopi 맵 PNG, 팀 세미나 PPT(참조 덱 시나리오, 일반 테마).
+- 분석(서브에이전트 근거 → 메인 판정): docs/analysis/{evopi-harness-inventory, claude-code-arch,
+  prime-master-arch, omp-master-arch}.md → 종합 docs/analysis/harness-comparison.md.
+- 정정 2건: 훅 이벤트 수 19→**31**(types.ts 리터럴 재집계); evopi-runtime `.prime` 잔존 0 확인.
+- 리스크 등재: R-1 커널 `...process.env` 상속(repl-manager.ts:257, Q6 미해소) · R-2 OS 샌드박스
+  미구현(프로브만) · R-3 셀 타임아웃 부재 · R-4 실 A/B 미실행. 코드 수정은 하지 않음(점검 요청).
+- 다이어그램: docs/diagrams/evopi-master-arch.{dot,png}, claude-code-master-arch.{dot,png}
+  (neato 고정좌표 + HTML 테이블, Noto Sans CJK KR, PNG Read 로 가독성 확인).
+- 덱: docs/seminar/evopi-architecture.pptx 42장 (python-pptx, build_deck.py) — 참조 덱 45장 시나리오
+  (표지→Agenda→섹션 디바이더→콜아웃/4카드/4통계→매트릭스→E2E→요약→References) 를 11섹션으로 재구성.
+  LibreOffice 렌더 PDF 로 겹침 3장 수정 후 재검증. 테마: 그래파이트 다크 + 틸(AWS 테마 비사용).
+- 환경: apt gh/libreoffice-impress/poppler-utils 설치, uv venv /tmp/pptx-venv(python-pptx 1.0.2).
+- git: 미커밋(지시 대기).
+
+## [체크포인트] 2026-09-03 — EvoHarness-RL(2608.05446) 집중 점검 + BPE 대응 검증
+
+사용자 지시: evopi 상대 장점·개선점, 논문 "Qwen3-8B ≈ Opus" 주장 점검, BPE 개념 이식 가능성.
+- 원문 확보: refs/evoharness-rl.{pdf,txt} (arXiv 2608.05446v1, 16p). 사용자 제공 BPE 대응 분석의
+  코드 인용 전수 일치 확인(goals.ts, agent-session.ts:9238, refinement.ts:141/457, harness-select, settings-manager).
+- 판정: 96.9% 는 Opus 교사 SFT + GRPO(8×H200) + Opus 통합기 조건부, seen split. frozen 에 이식 가능한
+  것은 프롬프트 시점 BPE(Base: Opus +2.1, GPT-5 +25.7, frozen Qwen3-8B +8.5/+27.6). annealing·학습 본체는 불가(D8 유지).
+- evopi 갭: Progress 서브골 구조 없음, recall push-only(6/kind), usage/eviction 없음(D9). 고유 이점: 하네스 액션이
+  ipython 셀 내 Python 호출이라 모델 턴 비용 0.
+- 산출물: docs/analysis/evoharness-rl-assessment.md (P1~P8 이식 항목 + 실행 순서 권고). 코드 변경 없음.
+
+## [체크포인트] 2026-09-03 — SE Phase: 프레임워크 자가평가 12라운드 + v0.10.0
+/goal 지시. 상세 docs/eval/SELF-EVAL.md · DECISIONS 「SE Phase」. 요지: 커널 비밀키 필터(R1) · 테스트 부채 20건 정리(R2) ·
+stderr 상한(R3) · 셀 타임아웃+커널 회수(R4) · 게이트 21패턴+bash()셀 검사(R5) · 문서 정합(R6) · shellcheck 0(R7) ·
+보호경로 쓰기 게이트(R8) · 지연 로더 unhandled rejection 수정(R9) · check:shell 게이트(R10) · 4.7G 코어덤프 제거(R11) ·
+릴리스 체크 4,668/0/0(R12). 게시는 아래 [배포완료] 항목.

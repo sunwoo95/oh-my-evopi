@@ -27,8 +27,9 @@ describe("regression #4428: remove legacy pi-mono built-in tools", () => {
 		}
 	});
 
-	it("registers only ipython as a built-in tool", () => {
-		expect(Object.keys(createAllToolDefinitions(process.cwd()))).toEqual(["ipython"]);
+	it("registers ipython plus the opt-in hashline_edit as built-in tools", () => {
+		// hashline_edit (M6) is registered but only activated via --tools; ipython stays the default.
+		expect(Object.keys(createAllToolDefinitions(process.cwd()))).toEqual(["ipython", "hashline_edit"]);
 	});
 
 	it("keeps legacy names available for extension and custom tool allowlists", () => {
