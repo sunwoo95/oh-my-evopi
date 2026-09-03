@@ -8,7 +8,9 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getLogger } from "@evopi/pi-ai";
 import type { KeyId } from "@evopi/pi-tui";
+import * as TypeboxModule from "typebox";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
@@ -25,6 +27,7 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "./types.js";
+import { z as zodFacade } from "./zod-compat.js";
 
 const require = createRequire(import.meta.url);
 
@@ -70,6 +73,12 @@ function getAliases(): Record<string, string> {
 		"@mariozechner/pi-tui": piTuiEntry,
 		"@mariozechner/pi-ai": piAiEntry,
 		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
+		// oh-my-pi package names (omp extension compatibility; see bundled-modules.ts).
+		"@oh-my-pi/pi-coding-agent": piCodingAgentEntry,
+		"@oh-my-pi/pi-agent-core": piAgentCoreEntry,
+		"@oh-my-pi/pi-tui": piTuiEntry,
+		"@oh-my-pi/pi-ai": piAiEntry,
+		"@oh-my-pi/pi-ai/oauth": piAiOauthEntry,
 		typebox: typeboxEntry,
 		"typebox/compile": typeboxCompileEntry,
 		"typebox/value": typeboxValueEntry,
@@ -172,6 +181,13 @@ function createExtensionAPI(
 	eventBus: EventBus,
 ): ExtensionAPI {
 	const api = {
+		// oh-my-pi ExtensionAPI "module access" members. `zod` is a TypeBox-backed
+		// facade (zod-compat.ts), `typebox` the real module, `logger` a component
+		// logger routed through the process log sink (~/.evopi/agent/logs).
+		zod: zodFacade,
+		typebox: TypeboxModule,
+		logger: getLogger(`extension:${path.basename(extension.path)}`),
+
 		on(event: string, handler: HandlerFn): void {
 			runtime.assertActive();
 			const list = extension.handlers.get(event) ?? [];

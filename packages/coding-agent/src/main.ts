@@ -764,8 +764,13 @@ async function prepareRuntimeServices(options: {
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [
 		...services.diagnostics,
 		...collectSettingsDiagnostics(settingsManager, "runtime creation"),
+		// A broken extension must be visible but must not take the session down:
+		// reported as a warning (stderr in print/json mode), the session continues
+		// without that extension. (Until v0.10.0 these never reached the terminal —
+		// the daemon create reply dropped `diagnostics` — so the historical "error"
+		// type never actually exited anything.)
 		...resourceLoader.getExtensions().errors.map(({ path, error }) => ({
-			type: "error" as const,
+			type: "warning" as const,
 			message: `Failed to load extension "${path}": ${error}`,
 		})),
 	];

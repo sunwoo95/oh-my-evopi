@@ -41,7 +41,10 @@ export function classifySessionRosterStatus(
 	});
 }
 
-export type RosterSessionSummary = Omit<SessionSummary, "streamingMessage" | "sessionActions" | "diagnostics">;
+// `diagnostics` (extension load failures, settings warnings) stays on roster
+// summaries: the supervisor answers `create` from the roster entry, and the
+// print/json clients report those diagnostics on stderr at startup.
+export type RosterSessionSummary = Omit<SessionSummary, "streamingMessage" | "sessionActions">;
 
 export interface WorkerRosterEntry {
 	agentId: string;
@@ -75,7 +78,7 @@ export function rosterAgentIdForSummary(
 }
 
 export function workerRosterEntryFromSummary(summary: SessionSummary): WorkerRosterEntry {
-	const { streamingMessage, sessionActions, diagnostics, ...slim } = summary;
+	const { streamingMessage, sessionActions, ...slim } = summary;
 	return { agentId: rosterAgentIdForSummary(summary), summary: slim };
 }
 

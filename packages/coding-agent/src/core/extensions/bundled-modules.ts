@@ -36,4 +36,11 @@ export const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@mariozechner/pi-ai": _bundledPiAi,
 	"@mariozechner/pi-ai/oauth": _bundledPiAiOauth,
 	"@mariozechner/pi-coding-agent": _bundledPiCodingAgent,
+	// oh-my-pi package names: omp extensions resolve to the same bundled modules
+	// (best-effort surface compatibility; omp-only APIs are shimmed in loader.ts).
+	"@oh-my-pi/pi-agent-core": _bundledPiAgentCore,
+	"@oh-my-pi/pi-tui": _bundledPiTui,
+	"@oh-my-pi/pi-ai": _bundledPiAi,
+	"@oh-my-pi/pi-ai/oauth": _bundledPiAiOauth,
+	"@oh-my-pi/pi-coding-agent": _bundledPiCodingAgent,
 };

@@ -21,6 +21,7 @@ import type {
 	AssistantMessageEventStream,
 	Context,
 	ImageContent,
+	Logger,
 	Model,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
@@ -990,6 +991,22 @@ export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContex
  * ExtensionAPI passed to extension factory functions.
  */
 export interface ExtensionAPI {
+	// =========================================================================
+	// Module access (oh-my-pi ExtensionAPI parity)
+	// =========================================================================
+
+	/**
+	 * Zod-style schema builder for tool parameters (`pi.zod.object({...})`).
+	 * Backed by TypeBox: the result IS a TSchema, so it can be passed straight to
+	 * `registerTool({ parameters })`. `refine`/`transform`/`catch` are no-ops on
+	 * the wire schema (see zod-compat.ts).
+	 */
+	zod: import("./zod-compat.js").ZodFacade;
+	/** The TypeBox module (`pi.typebox.Type.Object(...)`), same instance evopi validates with. */
+	typebox: typeof import("typebox");
+	/** Component logger (`extension:<file>`) routed to ~/.evopi/agent/logs/agent.jsonl. */
+	logger: Logger;
+
 	on(event: "resources_discover", handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>): void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
 	on(
