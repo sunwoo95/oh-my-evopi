@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.12.1] - 2026-09-03
+
+- **Fixed EVOPI_* settings leaking between daemon clients.** Session workers were spawned as `{ ...supervisorEnv, ...clientEnv }`, so a knob set by the client that first launched the daemon (for example `EVOPI_APPROVAL=strict` or `EVOPI_EVO=on`) stayed in effect for every later client that did not set the key itself. Workers now start from the supervisor env with all client-scoped `EVOPI_*` knobs removed before the client's launch env is applied, so each run sees exactly its own environment (found by the 0.12.0 sandbox check).
+
 ## [0.12.0] - 2026-09-03
 
 - **Approval tiers (NS-D5).** Every tool call is classified as `read`, `write` (kernel `edit` skill in both `await edit(...)` and `!edit --path` forms, `edit`, `hashline_edit`) or `exec` (bash, shell-reaching cells, extension/MCP tools), with a separate hazard axis for destructive commands and protected-path writes; each axis takes `auto` | `warn` | `ask` | `deny`. Presets `dev` (default; identical to the former `block` mode), `strict` (write/exec ask) and `yolo` (gate off) via `approval.preset`, per-axis `approval.read/write/exec/hazard`, `approval.toolTiers`, or `EVOPI_APPROVAL`. Legacy `EVOPI_PERMISSION_GATE` / `permissionGate.mode`: `off` → `yolo`, `block`/`warn` → hazard overlay only. A `permissionGate.allow` match now auto-approves tier prompts too. `permission_gate` log entries gained `tier` and `policy` (plus the `denied-by-policy` decision); non-legacy configurations are announced at session start.

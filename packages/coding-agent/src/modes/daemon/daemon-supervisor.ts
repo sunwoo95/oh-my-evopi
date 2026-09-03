@@ -128,6 +128,7 @@ import {
 	DaemonWorkerClient,
 	DaemonWorkerProbeTimeoutError,
 } from "./daemon-worker-client.js";
+import { workerBaseEnv } from "./daemon-worker-env.js";
 import {
 	DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
 	DAEMON_WORKER_INSTANCE_ID_ENV,
@@ -2854,8 +2855,10 @@ export class DaemonSupervisor {
 		const orphanProcessJournalPath =
 			existing?.descriptor.orphanProcessJournalPath ?? join(this.descriptorDir, `${workerId}.orphans.jsonl`);
 		const launch = createCliSubprocessLaunchSpec(["--mode", "daemon", "--daemon-socket", socketPath]);
+		// EVOPI_* knobs are client-scoped: never let the launching client's values leak
+		// into a later client's worker (daemon-worker-env.ts).
 		const workerEnvironment = createCliSubprocessEnv({
-			...process.env,
+			...workerBaseEnv(process.env, launchEnv),
 			...launchEnv,
 			[DAEMON_WORKER_ROLE_ENV]: "1",
 			[DAEMON_WORKER_TOKEN_ENV]: token,
