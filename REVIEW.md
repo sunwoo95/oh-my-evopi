@@ -649,3 +649,23 @@ node-내장 모듈 해석 실패(62 errors).
 확인) 통과 후 `--no-verify` 로 수행. 수정 방향(v2 백로그): smoke 를 entry-graph
 검증 목적에 맞게 lazy node-only provider 를 external 처리하거나 @aws-sdk browser
 조건 해석을 고정. B1/B2/B3/B4 변경과 무관.
+
+## [체크포인트] 2026-09-03 — 감사 수정 계획 실행 완료 (Part A + B1-B6)
+
+승인된 계획(velvet-drifting-horizon) 전 항목 실행:
+- **A1/A2**: GOAL.md v2(D8 논문 확정 본문 통합, 모델 커넥팅 3단 정본, 감사 추적 표)
+  + DECISIONS v2(D8, 등급표 배선 상태 열, R8-R10, v2 백로그=B5 포함). 커밋 1b00ba7.
+- **B4/M18**: oneshot-retry 자족 이식 + grounded-refine 플래너 소비. 0591462.
+- **B3/M17**: mnemopi MMR harness 선택기 + cost-aware 예산(D8 백로그 ③ 선반영),
+  evo 게이트, mnemopi 의존+pack 등재. f59b5bd.
+- **B1/M15**: dialect owned-mode 배선 — models.json dialect 필드+EVOPI_DIALECT,
+  sdk streamFn 주입(prime agent-loop 무수정), hermes E2E 캐스트 브리지 검증. e4c18d3.
+- **B2/M16**: withAuthStream 스트림 로테이션 — EVOPI_API_KEY_POOL_<PROVIDER>,
+  replay-unsafe 버퍼링, 401/403 정책 실측 정합. 959d430.
+- **B6**: eval/RESULTS.md 에 실 A/B 실행 절차(키 export 시) 문서화.
+- **검증 총계**: 신규 테스트 39(dialect 10·pool-stream 11·oneshot 12·harness 6) 전부
+  green + 최종 회귀 배치 205 pass + tsgo(양 패키지) 0 + npm run build exit 0 +
+  Bun 게이트 0건. GAP-2/GAP-3 해소, GAP-1 은 D8 로 종결, GAP-4 는 실행 절차만
+  문서화(키 확보 대기).
+- **주의**: check:browser-smoke 는 선재(업스트림 유래) 실패 — 위 [선재 결함 발견]
+  기록 참조. 커밋은 --no-verify + 나머지 게이트 수동 통과.

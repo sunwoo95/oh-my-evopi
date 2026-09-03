@@ -87,3 +87,29 @@ behave per SPEC §4 — the parts of the evo-on arm that don't require a model.
 Seed is fixed by the benchmark task set (`typescript-edit-benchmark` fixtures,
 deterministic). To run for real: set a provider key in the shell, apply the
 `arms.md` per-arm commands, then ingest `runs/<arm>/result.json`.
+
+## How to run the real A/B once an API key is available (B6/P4, 2026-09-03)
+
+The four arms are fully wired (`arms.md`); only a provider key is missing.
+Keys must be exported in the shell — never written to a file:
+
+```bash
+# 1. Export a provider key the arms' models can use, e.g.:
+export ANTHROPIC_API_KEY=sk-ant-...        # or OPENAI_API_KEY / PRIME_API_KEY ...
+
+# 2. From eval/ (bun workspace, isolated from the node product):
+cd eval
+bun metaharness/adapters/edit/cli.ts --check-fixtures   # sanity: "Fixtures OK"
+
+# 3. Run each arm per arms.md (evopi-omp / evopi-prime / evopi-evooff / evopi-evoon).
+#    The evo-on arm additionally requires the grounding signal file:
+#      export EVOPI_EVO=on
+#      export EVOPI_FEEDBACK_FILE=/tmp/evopi-feedback.json   # {task,status,detail?}
+#    (SPEC §4:56: never run an evo-on arm without a wired grounding signal.)
+
+# 4. Record pass-rates/cost per arm back into this file, replacing the SKIP above.
+```
+
+Optional rotation/dialect knobs now available to arms (B1/B2):
+`EVOPI_API_KEY_POOL_<PROVIDER>` for multi-key rotation, `EVOPI_DIALECT` for
+in-band tool calling on non-native-tool models.
