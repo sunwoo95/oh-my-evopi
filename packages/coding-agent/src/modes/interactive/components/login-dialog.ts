@@ -81,6 +81,8 @@ export class LoginDialogComponent extends Container implements Focusable {
 	// Tracks visibility directly rather than inferring it from inputResolver,
 	// which can outlive the field when a new screen clears the content.
 	private inputVisible = false;
+	/** Components of the currently visible showPrompt section (cleared on the next prompt). */
+	private activePromptParts: Component[] = [];
 	private continueResolver?: () => void;
 	private continueRejecter?: (error: Error) => void;
 	private authUrl?: string;
@@ -221,19 +223,29 @@ export class LoginDialogComponent extends Container implements Focusable {
 	 * Note: Does NOT clear content, appends to existing (preserves URL from showAuth)
 	 */
 	showPrompt(message: string, placeholder?: string): Promise<string> {
-		// Sequential prompts (e.g. Databricks URL → token) reuse the single input
-		// component: detach it from the previous section first, or it renders
-		// twice with two cursors mirroring the same buffer.
-		this.contentContainer.removeChild(this.input);
-		this.addSectionSpacer();
-		this.addSectionTitle(message);
+		// Sequential prompts (e.g. Databricks URL → token) replace each other:
+		// the finished step's title/placeholder/hints are removed entirely so only
+		// the active question is on screen, and the single shared input component
+		// is re-parented (leaving it attached would render two mirrored cursors).
+		this.clearActivePrompt();
+		const track = (component: Component) => {
+			this.contentContainer.addChild(component);
+			this.activePromptParts.push(component);
+		};
+
+		if (this.contentContainer.children.length === 0) {
+			this.startContent();
+		} else {
+			track(new Spacer(1));
+		}
+		track(new Text(theme.bold(theme.fg("text", message)), 0, 0));
 		if (placeholder) {
-			this.contentContainer.addChild(new Text(theme.fg("muted", `e.g., ${placeholder}`), 0, 0));
+			track(new Text(theme.fg("muted", `e.g., ${placeholder}`), 0, 0));
 		}
 		this.contentContainer.addChild(this.input);
 		this.inputVisible = true;
 		this.authActions?.setText(this.getAuthActionsText());
-		this.contentContainer.addChild(
+		track(
 			new Text(
 				theme.fg("muted", `${keyHint("tui.select.confirm", "submit")}  ${keyHint("tui.select.cancel", "cancel")}`),
 				0,
@@ -244,6 +256,15 @@ export class LoginDialogComponent extends Container implements Focusable {
 		this.tui.requestRender();
 
 		return this.waitForInput();
+	}
+
+	/** Remove the previous showPrompt section (title, placeholder, hint, input). */
+	private clearActivePrompt(): void {
+		for (const component of this.activePromptParts) {
+			this.contentContainer.removeChild(component);
+		}
+		this.activePromptParts = [];
+		this.contentContainer.removeChild(this.input);
 	}
 
 	/**

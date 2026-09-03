@@ -212,11 +212,13 @@ describe("LoginDialogComponent", () => {
 		for (const ch of "dapi-secret") dialog.handleInput(ch);
 		const output = stripAnsi(dialog.render(88).join("\n"));
 
-		// Both section titles remain as a step log, but the live input (with the
-		// current buffer) must render exactly once — a second copy means the
-		// detach in showPrompt regressed (two cursors mirroring one buffer).
-		expect(output).toContain("Enter Databricks base URL");
+		// The finished URL step is cleared entirely: only the active token prompt
+		// shows, with a single submit hint and a single input cursor. Leftover URL
+		// text or a duplicated input means the section cleanup regressed.
+		expect(output).not.toContain("Enter Databricks base URL");
+		expect(output).not.toContain("cloud.databricks.com");
 		expect(output).toContain("Enter Databricks auth token:");
+		expect(output.split("submit").length - 1).toBe(1);
 		const inputEchoes = output.split("dapi-secret").length - 1;
 		expect(inputEchoes).toBe(1);
 	});

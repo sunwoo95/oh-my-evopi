@@ -705,3 +705,10 @@ main push(897cb64) + gh-pages(abcd8b7, v0.9.1-0.9.3 보존). 7 타르볼(+evopi-
 main b7e1c1d + gh-pages 4e4ab11. **최초로 --no-verify 없이 전체 pre-commit 통과**
 (browser-smoke 해소). 라이브 검증: sha 일치, 격리 설치 → 0.9.5, showPrompt
 디태치·bedrock 간접화 설치본 반영 확인.
+
+## [체크포인트] 2026-09-03 — Databricks 로그인 화면 정리 (연속 프롬프트 교체 UX)
+
+사용자 리포트: 토큰 단계에서 URL 문구·submit 힌트가 중복 표시. 수정 =
+showPrompt 가 자신이 추가한 구성요소(제목·placeholder·힌트·input)를 추적하고
+다음 프롬프트 시작 시 **이전 섹션 전체 제거** — 활성 질문만 화면에 남음.
+회귀 테스트 갱신(URL 문구 부재·submit 힌트 1개·커서 1개). 15/15, tsgo 0.
