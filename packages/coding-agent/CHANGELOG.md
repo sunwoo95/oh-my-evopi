@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0] - 2026-09-03
 
 - **Progress ledger (B1 / EvoHarness-RL P1).** `rlm.harness.commit(subgoal, status, note=...)` upserts subgoal records (`memory` entries tagged `metadata.bpe="progress"`, id `progress:<slug>`, status `open|active|done|blocked`, at most 8 non-done); `rlm.harness.progress()` lists them and `rlm.harness.plan()` renders a `# PLAN` block (`[x]`/`[>]`/`[ ]`/`[!]`). Behind the evo gate (same condition as the MMR selector) the system prompt prepends the PLAN block, labels injected entries with their BPE class (`[progress]`/`[experience]`/`[belief]`), and adds `commit`/`recall` guidance. With evo off the harness section and system prompt are byte-identical to before.
 - **recall pull (B2 / EvoHarness-RL P2).** `rlm.harness.recall(query, kind=None, limit=3)` returns the top entries by Jaccard similarity over `title + content + path`, excluding progress entries, and increments `metadata.usage_count` on each hit. The MMR injection selector adds `min(usage_count, 10) * 0.02` to an entry's relevance (evo-gated path only).

@@ -50,7 +50,7 @@
 	"engines": {
 		"node": ">=22.8.0"
 	},
-	"version": "0.10.0",
+	"version": "0.11.0",
 	"dependencies": {
 		"@evopi/pi-coding-agent": "^0.9.1",
 		"get-east-asian-width": "^1.6.0"

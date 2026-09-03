@@ -21826,6 +21826,23 @@ export const MODELS = {
 			contextWindow: 1000000,
 			maxTokens: 1000000,
 		} satisfies Model<"anthropic-messages">,
+		"zai/glm-5.3-fast": {
+			id: "zai/glm-5.3-fast",
+			name: "GLM 5.3 Fast",
+			api: "anthropic-messages",
+			provider: "vercel-ai-gateway",
+			baseUrl: "https://ai-gateway.vercel.sh",
+			reasoning: true,
+			input: ["text"],
+			cost: {
+				input: 2.0999999999999996,
+				output: 6.6000000000000005,
+				cacheRead: 0.21,
+				cacheWrite: 0,
+			},
+			contextWindow: 1048576,
+			maxTokens: 262144,
+		} satisfies Model<"anthropic-messages">,
 		"zai/glm-5.3-flash": {
 			id: "zai/glm-5.3-flash",
 			name: "GLM 5.3 Flash",
