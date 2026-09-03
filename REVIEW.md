@@ -772,3 +772,27 @@ install.sh sha 일치(c3f8fc48…), 격리 prefix `curl … install.sh | sh` →
 ## [체크포인트] 2026-09-03 — 재배포 점검 + 후속 계획
 재배포 요청 점검: 트리 clean, main=origin=04d6a94, 라이브 v0.10.0 타르볼에 docs·CHANGELOG 포함 → 신규 릴리스 불필요.
 CI(ci.yml)에 shellcheck 설치 추가로 check:shell 강제. 후속 계획 docs/design/NEXT-STEPS.md (트랙 A~E, 실행 순서).
+
+## [체크포인트] 2026-09-03 — NS Phase: NEXT-STEPS 트랙 A/B/C + 점검 후속 2건 → v0.11.0
+사용자 지시: "후속작업 진행" + "영역(NEXT-STEPS)도 추가 구현하고 검증루프 진행해서 완료되면 재배포". 상세 DECISIONS 「NS Phase」 M19–M23.
+- 병렬 구현(파일 소유권 분리, 서브에이전트 3): 트랙 A(A3 게이트 대상별 rm 판정 + `permissionGate.mode/allow[]`, A5 `permission_gate`
+  세션 로그 텔레메트리, A2 `kernel.envPolicy/envAllow` + `EVOPI_KERNEL_ENV_POLICY`), 트랙 B(B1 `rlm.harness.commit/progress/plan`
+  ≤8 비-done + PLAN 블록, B2 `rlm.harness.recall` Jaccard + `usage_count`, evo 게이트 뒤·off 바이트 동일 스냅샷 테스트), 트랙 C(C2
+  `scripts/self-eval.mjs` + 베이스라인 `eval/self-eval/0.10.0.json`, C3 uv 캐시·self-eval 아티팩트, E3 `npm version -ws` exit 1 원인
+  = caret 범위 초과 bump 시 미배포 `@evopi/*` E404 → release.mjs 버전 일치 검사). 메인: A2 마지막 홉(ipython 프로비저너 →
+  ReplKernelManager) 배선, omp extension 호환(`@oh-my-pi/*` 별칭 + `pi.zod`(TypeBox facade)/`pi.typebox`/`pi.logger`), print 모드
+  extension 로드 오류 표면화(원인: supervisor `create` 응답이 roster 엔트리에서 조립되며 `diagnostics` 가 벗겨짐 → roster 에 유지, error→warning).
+- 검증: 트랙별 vitest(permission-gate 16→29, kernel-env 5→11, progress-ledger 11 신설, harness-select +3, refinement +2, omp-compat 7,
+  Python test_harness 35→45) · self-eval 0.11.0 = tsgo 0/0 · biome 0 · vitest 4710 pass/0 fail(357 파일) · 번들 14,699,212 B(+24 KB) ·
+  시작 371–420 ms · shellcheck 통과 · F3 0 (`eval/self-eval/0.11.0.json`). 4개 커밋 모두 pre-commit 전체 green.
+- 샌드박스 실검증(mock 업스트림, 빌드본): 확장 로드 경고 stderr 표시 · omp `hello.ts` 원문 로드·실행 · cwd 내 `rm -rf` 무확인 통과(no-UI) ·
+  env denylist/allowlist(env·settings.json `envAllow`) · `EVOPI_EVO=on` PLAN 렌더 + recall 히트 `usage_count=1` · `permission_gate` 엔트리
+  (warn=`warned`, block=`denied-by-user`) · 풀 로테이션 회귀 없음.
+- 관찰: (1) `test/suite/regressions/4603-worker-recovery.test.ts` "shutdown --force" 케이스는 HEAD(변경 stash) 에서도 실패하고 재실행 시
+  통과 — 1초 admission 갱신 타이밍의 flaky(변경 무관). (2) print 모드에서 게이트 block 은 `ctx.hasUI` 가 true 로 보여 "denied-by-user" 로 기록됨
+  (prime 스톡 hasUI 의미, 후속 검토). (3) `rm -rf .`(cwd 자체) 는 통과 — 필요 시 `startsWith(cwd + "/")` 로 조이기.
+- 미착수/대기: A4·B3·B4·D1·D4·D5·E1·E2(다음 라운드), C1/B5(API 키), A1(userns 호스트), D2(골격 무수정 충돌·보류) — NEXT-STEPS §7.
+
+### [배포완료] 2026-09-03 — v0.11.0 게시 (NS Phase 결과)
+main `bd023dc`(범프) ← `3ba45d1`(트랙 C + 문서) ← `0c89b5f`(트랙 A/B) ← `7b0c97d`(omp 호환·진단), gh-pages `2b8c8f6`(v0.9.1–0.10.0 보존 + v0.11.0).
+라이브 sha 일치 ~40s, 격리 prefix `curl … install.sh | sh` → 0.11.0, 설치본으로 omp 확장 실행·로드 경고·cwd rm 통과·allowlist·풀 로테이션 재확인.
