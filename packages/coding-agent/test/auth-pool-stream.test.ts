@@ -112,6 +112,32 @@ describe("withAuthStream", () => {
 		expect(final?.stopReason).toBe("stop");
 	});
 
+	it("rotates on an SDK-shaped '401 <text>' terminal error (regression: v0.9.6 sandbox)", async () => {
+		const attempts: string[] = [];
+		const outer = withAuthStream(
+			poolResolver(["bad-key", "good-key"]),
+			(key) => {
+				attempts.push(key);
+				if (key === "bad-key") {
+					return scriptedStream((s) => {
+						const failure = message({ stopReason: "error", errorMessage: "401 invalid openai api key" });
+						s.push({ type: "start", partial: failure });
+						s.push({ type: "error", reason: "error", error: failure });
+						s.end(failure);
+					});
+				}
+				return streamSuccess("pong");
+			},
+			{ model: MODEL },
+		);
+
+		const { types, final } = await collect(outer);
+
+		expect(attempts).toEqual(["bad-key", "good-key"]);
+		expect(types).not.toContain("error");
+		expect(final?.stopReason).toBe("stop");
+	});
+
 	it("never retries after a replay-unsafe event has been delivered", async () => {
 		const attempts: string[] = [];
 		const outer = withAuthStream(
@@ -236,6 +262,27 @@ describe("withAuthStream", () => {
 });
 
 describe("isAuthRetryableAssistantError", () => {
+	it("classifies SDK-shaped '<status> <text>' messages (live provider format)", () => {
+		// openai-completions.ts stores `error.message` from the OpenAI SDK APIError,
+		// which is "<status> <body>" — the exact text seen in the v0.9.6 sandbox check.
+		expect(isAuthRetryableAssistantError({ stopReason: "error", errorMessage: "401 invalid openai api key" })).toBe(
+			true,
+		);
+		expect(
+			isAuthRetryableAssistantError({
+				stopReason: "error",
+				errorMessage: '403 {"type":"error","error":{"type":"permission_error","message":"forbidden"}}',
+			}),
+		).toBe(true);
+		expect(isAuthRetryableAssistantError({ stopReason: "error", errorMessage: "500 internal server error" })).toBe(
+			false,
+		);
+		// A bare number that is not a status prefix must not be mistaken for one.
+		expect(isAuthRetryableAssistantError({ stopReason: "error", errorMessage: "401k plan parse failure" })).toBe(
+			false,
+		);
+	});
+
 	it("classifies terminal assistant errors", () => {
 		expect(isAuthRetryableAssistantError({ stopReason: "error", errorMessage: "HTTP 401: bad key" })).toBe(true);
 		expect(isAuthRetryableAssistantError({ stopReason: "error", errorMessage: "quota_exceeded for org" })).toBe(true);

@@ -60,6 +60,11 @@ const STATUS_MESSAGE_PATTERNS: readonly RegExp[] = [
 	/status\s*[:=]?\s*(\d{3})/i,
 	/\bhttp\s*(\d{3})\b/i,
 	/\b(\d{3})\s*(?:status|error)\b/i,
+	// SDK `APIError.message` convention ("401 invalid api key", "403 {...}") — the
+	// OpenAI/Anthropic SDKs prefix the body with the bare status. On the stream
+	// path this text is the only classification input (providers store
+	// `error.message` as `errorMessage`), so the leading status must be honored.
+	/^\s*([1-5]\d{2})\s+\S/,
 ];
 
 function extractStatusFromMessage(message: string): number | undefined {
