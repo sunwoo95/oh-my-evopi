@@ -295,6 +295,8 @@ const DAEMON_COMMAND_TYPES: ReadonlySet<string> = new Set([
 	"set_session_name",
 	"get_rlm_max_depth_status",
 	"set_rlm_max_depth",
+	"get_kernel_cell_timeout_status",
+	"set_kernel_cell_timeout",
 	"rename_saved_session",
 	"delete_saved_session",
 	"get_session_context",

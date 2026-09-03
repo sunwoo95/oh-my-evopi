@@ -16,6 +16,7 @@ import type { ReplayBuiltInToolName } from "../../core/extensions/index.js";
 import type { InputSource } from "../../core/extensions/types.js";
 import type { GoalState } from "../../core/goals.js";
 import type { KernelSentAgentMessage } from "../../core/kernel/index.js";
+import type { KernelCellTimeoutStatus, SetKernelCellTimeoutResult } from "../../core/kernel-cell-timeout.js";
 import type { AcpMcpServerConfig } from "../../core/mcp/acp-mcp-types.js";
 import type { RefinementResult } from "../../core/refinement/index.js";
 import type { RlmMaxDepthStatus, SetRlmMaxDepthResult } from "../../core/rlm-max-depth.js";
@@ -555,6 +556,8 @@ export interface AgentConnectionRlmChildAgentSnapshot {
 	sessionName?: string;
 	/** Exact provider/model selector used by the child. */
 	model?: string;
+	/** NS-D1: isolated worktree path when the child runs in one. */
+	worktreePath?: string;
 	label: string;
 	status: AgentConnectionRlmChildAgentStatus;
 	durationMs?: number;
@@ -750,6 +753,10 @@ export interface AgentConnection {
 	setSessionName(name: string): Promise<void>;
 	getRlmMaxDepthStatus(): Promise<RlmMaxDepthStatus>;
 	setRlmMaxDepth(maxDepth: number, options?: { global?: boolean }): Promise<SetRlmMaxDepthResult>;
+	/** `/kernel` status: effective per-cell cap, its source, and the running cell (A4). */
+	getKernelCellTimeoutStatus(): Promise<KernelCellTimeoutStatus>;
+	/** `/kernel timeout <ms> [--global]`: immediate, session-persisted; re-arms the running cell. */
+	setKernelCellTimeoutMs(timeoutMs: number, options?: { global?: boolean }): Promise<SetKernelCellTimeoutResult>;
 	renameSavedSession(sessionPath: string, name: string): Promise<void>;
 	deleteSavedSession(sessionPath: string): Promise<DeleteSessionFileResult>;
 

@@ -580,6 +580,14 @@ export class InProcessAgentConnection implements AgentConnection {
 		return this.session.setRlmMaxDepth(maxDepth, options);
 	}
 
+	async getKernelCellTimeoutStatus() {
+		return this.session.getKernelCellTimeoutStatus();
+	}
+
+	async setKernelCellTimeoutMs(timeoutMs: number, options?: { global?: boolean }) {
+		return this.session.setKernelCellTimeoutMs(timeoutMs, options);
+	}
+
 	async renameSavedSession(sessionPath: string, name: string): Promise<void> {
 		const trimmedName = name.trim();
 		if (!trimmedName) {

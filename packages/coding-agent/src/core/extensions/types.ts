@@ -309,6 +309,14 @@ export interface ExtensionContext {
 	compact(options?: CompactOptions): void;
 	/** Get the current effective system prompt. */
 	getSystemPrompt(): string;
+	/**
+	 * Cooperative steering signal, present only on the `ctx` handed to `ToolDefinition.execute`.
+	 * Aborted while a queued steering message waits for the next turn boundary. It NEVER kills
+	 * the tool: long-running tools MAY observe it to finish early or background themselves so
+	 * the message injects promptly; ignoring it is always safe. Mirrors omp
+	 * `ToolCallContext.steeringSignal`.
+	 */
+	steeringSignal?: AbortSignal;
 }
 
 /**
@@ -438,6 +446,17 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	 * If omitted, the default execution mode applies.
 	 */
 	executionMode?: ToolExecutionMode;
+
+	/**
+	 * Whether a queued steering message may abort this tool mid-execution (hard L2 abort).
+	 * A function resolves this per call from the validated arguments.
+	 *
+	 * Enable only for calls that purely *wait* and observe their abort signal cleanly, so the
+	 * abort surfaces the tool's current snapshot rather than corrupting a side effect. Built-in
+	 * `ipython`/`bash`-style tools stay non-interruptible and only receive the cooperative
+	 * `ctx.steeringSignal`. Mirrors omp `AgentTool.interruptible`.
+	 */
+	interruptible?: boolean | ((args: Static<TParams>) => boolean);
 
 	/** Execute the tool. */
 	execute(

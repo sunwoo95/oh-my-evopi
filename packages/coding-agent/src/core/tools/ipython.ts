@@ -8,6 +8,7 @@ import type { ExtensionContext, ToolDefinition } from "../extensions/types.js";
 import { withKernelBootPermit } from "../kernel/boot-gate.js";
 import type { KernelBootstrapProgressHandler } from "../kernel/bootstrap.js";
 import {
+	type CellTimeoutWarning,
 	type ExecuteResult,
 	type HostRequestHandlers,
 	type KernelAttachment,
@@ -19,6 +20,7 @@ import {
 } from "../kernel/index.js";
 import type { KernelEnvPolicy } from "../kernel/kernel-env.js";
 import { manifestPathIn, type RestoreResult, snapshotPathIn } from "../kernel/state-snapshot.js";
+import { formatKernelTimeout } from "../kernel-cell-timeout.js";
 import type { PythonSkillRuntimeInfo } from "../skills.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 
@@ -245,6 +247,19 @@ function setWorkingMessage(ctx: ExtensionContext | undefined, message?: string):
 	}
 }
 
+function notifyUi(ctx: ExtensionContext | undefined, message: string, type: "info" | "warning" | "error"): void {
+	try {
+		ctx?.ui.notify(message, type);
+	} catch {
+		// Stale or headless UI context; the tool result already carries the note.
+	}
+}
+
+function percentOfCap(elapsedMs: number, timeoutMs: number): number {
+	if (timeoutMs <= 0) return 0;
+	return Math.min(100, Math.max(0, Math.round((elapsedMs / timeoutMs) * 100)));
+}
+
 export type IpythonToolInput = Static<typeof ipythonSchema>;
 
 export interface IpythonToolDetails {
@@ -269,6 +284,12 @@ export interface IpythonToolDetails {
 		evalue: string;
 		traceback: string[];
 	};
+	/** Wall-clock cap that applied to this cell (ms); absent/0 = none. */
+	timeoutMs?: number;
+	/** The cell crossed the 80% warning point of its cap. */
+	timeoutWarned?: boolean;
+	/** The cell hit its cap; `kernelRestarted` = the interrupt was ignored and the kernel was discarded. */
+	timedOut?: { timeoutMs: number; kernelRestarted: boolean };
 }
 
 export interface IpythonToolOptions {
@@ -279,8 +300,12 @@ export interface IpythonToolOptions {
 	commandPrefix?: string;
 	/** Shell used by bash(). */
 	shellPath?: string;
-	/** Wall-clock cap per cell (ms); 0/undefined = none. See ExecuteOptions.timeoutMs. */
-	cellTimeoutMs?: number;
+	/**
+	 * Wall-clock cap per cell (ms); 0/undefined = none. See ExecuteOptions.timeoutMs.
+	 * A function is re-read for every cell, so a `/kernel timeout` change reaches the
+	 * next cell without rebuilding the tool.
+	 */
+	cellTimeoutMs?: number | (() => number);
 	/** `kernel.envPolicy` (A2): denylist (default) or allowlist for the kernel subprocess env. */
 	envPolicy?: KernelEnvPolicy;
 	/** `kernel.envAllow`: extra names (or `PREFIX*`) passed through in allowlist mode. */
@@ -572,6 +597,7 @@ async function executeWithBusyKernelChoice(
 	onLateSentAgentMessage: ((toolCallId: string, message: KernelSentAgentMessage) => void) | undefined,
 	ctx: ExtensionContext | undefined,
 	timeoutMs: number | undefined,
+	onTimeoutWarning?: (info: CellTimeoutWarning) => void,
 ): Promise<{ result: ExecuteResult; kernelRestarted: boolean }> {
 	let kernelRestarted = false;
 	while (true) {
@@ -585,6 +611,7 @@ async function executeWithBusyKernelChoice(
 					onLateSentAgentMessage: onLateSentAgentMessage
 						? (message) => onLateSentAgentMessage(toolCallId, message)
 						: undefined,
+					onTimeoutWarning,
 				}),
 				kernelRestarted,
 			};
@@ -645,6 +672,12 @@ export function createIpythonToolDefinition(
 				});
 			};
 
+			// Resolved per cell so a `/kernel timeout` change reaches the next cell.
+			const configuredTimeout = options?.cellTimeoutMs;
+			const cellTimeoutMs = typeof configuredTimeout === "function" ? configuredTimeout() : configuredTimeout;
+			const timeoutMs = typeof cellTimeoutMs === "number" && cellTimeoutMs > 0 ? cellTimeoutMs : undefined;
+			let timeoutWarning: CellTimeoutWarning | undefined;
+
 			try {
 				const { result: r, kernelRestarted } = await executeWithBusyKernelChoice(
 					provisioner,
@@ -661,7 +694,22 @@ export function createIpythonToolDefinition(
 					setToolWorkingMessage,
 					options?.onLateSentAgentMessage,
 					ctx,
-					options?.cellTimeoutMs,
+					timeoutMs,
+					(info) => {
+						timeoutWarning = info;
+						const pct = percentOfCap(info.elapsedMs, info.timeoutMs);
+						const cap = formatKernelTimeout(info.timeoutMs);
+						const left = formatKernelTimeout(info.remainingMs);
+						onUpdate?.({
+							content: [{ type: "text", text: `[cell has used ${pct}% of its ${cap} cap — ${left} left]` }],
+							details: { status: "ok", timeoutMs: info.timeoutMs, timeoutWarned: true },
+						});
+						notifyUi(
+							ctx,
+							`Python cell at ${pct}% of its ${cap} cap (${left} left). /kernel timeout <ms|Nm|off> extends it`,
+							"warning",
+						);
+					},
 				);
 
 				let text = r.stdout;
@@ -675,6 +723,22 @@ export function createIpythonToolDefinition(
 				}
 				if (kernelRestarted) {
 					text = text ? `${KERNEL_RESTART_NOTICE}\n\n${text}` : KERNEL_RESTART_NOTICE;
+				}
+				// A4: cells that crossed the 80% point get one model-facing line; cells
+				// that never did (and every cap-off session) keep byte-identical output.
+				if (r.timedOut) {
+					const cap = formatKernelTimeout(r.timedOut.timeoutMs);
+					notifyUi(
+						ctx,
+						r.timedOut.kernelRestarted
+							? `Python cell exceeded its ${cap} cap and ignored the interrupt; kernel restarted (variables reverted to the last snapshot)`
+							: `Python cell exceeded its ${cap} cap and was interrupted`,
+						r.timedOut.kernelRestarted ? "error" : "warning",
+					);
+				} else if (timeoutWarning) {
+					const pct = percentOfCap(r.durationMs, timeoutWarning.timeoutMs);
+					const note = `[note: this cell used ${pct}% of its ${formatKernelTimeout(timeoutWarning.timeoutMs)} wall-clock cap (kernel.cellTimeoutMs). Split long work into smaller cells or run it in the background before the cap is hit.]`;
+					text = text ? `${text}\n${note}` : note;
 				}
 
 				const imageBlocks = imageBlocksFromAttachments(r.attachments);
@@ -695,6 +759,11 @@ export function createIpythonToolDefinition(
 						sentAgentMessages: r.sentAgentMessages,
 						kernelRestarted,
 						error: r.error,
+						// Only cells that crossed the warning point (or timed out) carry the
+						// cap in details, so unaffected cells persist byte-identical entries.
+						...(timeoutWarning || r.timedOut ? { timeoutMs: (r.timedOut ?? timeoutWarning)?.timeoutMs } : {}),
+						...(timeoutWarning ? { timeoutWarned: true } : {}),
+						...(r.timedOut ? { timedOut: r.timedOut } : {}),
 					},
 					isError: r.status === "error" || r.status === "aborted",
 				};

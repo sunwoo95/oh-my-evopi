@@ -17,6 +17,8 @@ class RLMSpawnHandle:
     name: str
     session_dir: Path
     model: str
+    # Isolated git worktree the child runs in; None for shared-cwd children.
+    worktree: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -46,11 +48,13 @@ def _spawn_handle_from_payload(payload: Any) -> RLMSpawnHandle:
     model = payload.get("model")
     if not all(isinstance(value, str) and value for value in (child_id, name, session_dir, model)):
         raise RuntimeError("rlm.run returned an invalid spawn handle")
+    worktree = payload.get("worktree")
     return RLMSpawnHandle(
         rlm_child_id=child_id,
         name=name,
         session_dir=Path(session_dir),
         model=model,
+        worktree=Path(worktree) if isinstance(worktree, str) and worktree else None,
     )
 
 
@@ -89,15 +93,24 @@ def emit(data: dict[str, Any]) -> None:
     repl.emit(data)
 
 
-async def run(prompt: str, **kwargs: Any) -> RLMSpawnHandle:
+async def run(prompt: str, *, isolated: bool | None = None, **kwargs: Any) -> RLMSpawnHandle:
     """Spawn a recursive evopi child and return once its task is admitted.
 
     ``model`` selects a child with an exact ``provider/model`` selector.
     ``thinking`` sets the child reasoning level (e.g. 'off', 'low', 'medium', 'high');
     defaults to the parent level; levels invalid for the resolved model fail the spawn.
+    ``isolated`` runs the child in a detached git worktree seeded with the parent's
+    uncommitted changes; its file changes come back as a patch applied to the parent
+    checkout. Requires ``subagent.worktree.mode`` ``opt-in`` or ``always`` on the host
+    (``always`` isolates every child unless ``isolated=False``). ``None`` (default)
+    leaves the decision to the host and is omitted from the request.
     """
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
+    if isolated is not None:
+        if not isinstance(isolated, bool):
+            raise TypeError(f"isolated must be bool or None, got {type(isolated).__name__}")
+        kwargs["isolated"] = isolated
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
 

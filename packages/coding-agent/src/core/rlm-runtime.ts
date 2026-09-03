@@ -17,6 +17,8 @@ export interface RlmSpawnHandle {
 	name: string;
 	session_dir: string;
 	model: string;
+	/** Isolated git worktree path (NS-D1); present only for isolated children. */
+	worktree?: string;
 }
 
 export type RlmSubagentRegistryStatus = "running" | "completed" | "error";
@@ -233,6 +235,10 @@ export interface CreateRlmSubagentRuntimeOptions {
 	rlmDepth: number;
 	rlmMaxDepth: number;
 	rlmParentNodeId: string;
+	/** Child working directory (NS-D1 isolated worktree); hosts create the child session here. Defaults to the parent's cwd. */
+	cwd?: string;
+	/** Isolated worktree the child runs in (for the child doctrine, persistence and UI). */
+	worktree?: { path: string; repoRoot: string };
 	/** Source of the Python cell that spawned this subagent, for display. */
 	spawnCode?: string;
 	/** Publish the session to the parent before a host makes the runtime addressable. */

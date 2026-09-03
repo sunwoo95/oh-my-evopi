@@ -22,6 +22,7 @@ import type {
 	Model,
 	ServiceTier,
 	TextContent,
+	ToolResultMessage,
 	Usage,
 	UserMessage,
 } from "@evopi/pi-ai";
@@ -115,6 +116,24 @@ import {
 import type { AgentCronJob, AgentRlmHeartbeatController, AgentRlmHeartbeatStatusUpdate } from "./cron-jobs.js";
 import { normalizeHeartbeatDeliveryMode } from "./cron-jobs.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
+import {
+	applyRewind,
+	buildEditCheckpointEntryData,
+	EDIT_CHECKPOINT_CUSTOM_ENTRY,
+	EDIT_CHECKPOINT_DIR_ENV,
+	EDIT_CHECKPOINT_MAX_FILE_BYTES_ENV,
+	type EditCheckpointListItem,
+	type EditRewindResult,
+	editCheckpointDirIn,
+	editCheckpointIndexSize,
+	formatEditCheckpointList,
+	listEditCheckpoints,
+	planRewind,
+	pruneEditCheckpoints,
+	readEditCheckpointIndex,
+	readEditCheckpointIndexFrom,
+	resolveEditCheckpointTarget,
+} from "./edit-checkpoints.js";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.js";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
 import {
@@ -141,7 +160,6 @@ import {
 	type TreePreparation,
 	type TurnEndEvent,
 	type TurnStartEvent,
-	wrapRegisteredTools,
 } from "./extensions/index.js";
 import { emitSessionShutdownEvent } from "./extensions/runner.js";
 import {
@@ -172,6 +190,7 @@ import {
 	type CustomMessage,
 	convertToLlm,
 	createCompactionOutcomeMessage,
+	createEditRewindNoticeMessage,
 	createHeartbeatPromptMessage,
 	createRefinementOutcomeMessage,
 	createRlmChildFailureMessage,
@@ -260,22 +279,47 @@ import {
 	SessionManager,
 } from "./session-manager.js";
 import type { SessionStats } from "./session-stats.js";
-import type { SettingsManager } from "./settings-manager.js";
+import { DEFAULT_KERNEL_CELL_TIMEOUT_MS, type SettingsManager } from "./settings-manager.js";
 import { getPythonSkillRuntimeInfo, type Skill } from "./skills.js";
 import {
 	parseRefineCommandOptions,
+	parseRewindCommandOptions,
 	parseSessionSlashCommand,
 	parseSlashCommand,
+	parseWorktreeCommandOptions,
 	type SessionSlashCommand,
 	type SlashCommandInfo,
+	type WorktreeCommandOptions,
 } from "./slash-commands.js";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.js";
+import {
+	completeSubagentWorktree,
+	createSubagentWorktree,
+	formatSubagentWorktreeOutcome,
+	listSubagentWorktrees,
+	normalizeRequestedRlmSubagentIsolation,
+	type PruneStaleWorktreesResult,
+	pruneStaleWorktrees,
+	removeSubagentWorktree,
+	resolveGitRepoRoot,
+	resolveSubagentIsolation,
+	type SubagentPatchApplyStatus,
+	type SubagentWorktreeEntry,
+	type SubagentWorktreeHandle,
+	type SubagentWorktreeOutcome,
+	subagentWorktreeBaseDir,
+} from "./subagent-worktree.js";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.js";
 import { THINKING_LEVELS } from "./thinking-levels.js";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.js";
+import { createHashlineEditToolDefinition } from "./tools/hashline-edit.js";
 import { createAllToolDefinitions } from "./tools/index.js";
 import { IpythonKernelProvisioner } from "./tools/ipython.js";
-import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.js";
+import {
+	createToolDefinitionFromAgentTool,
+	type ToolSteeringRuntime,
+	wrapToolDefinitions,
+} from "./tools/tool-definition-wrapper.js";
 import { addAssistantUsage, emptyUsage } from "./usage.js";
 import { SERPER_CREDENTIAL_ID, SERPER_ENV_VAR, WEBSEARCH_SKILL_NAME } from "./websearch-credential.js";
 
@@ -307,6 +351,8 @@ export interface RlmChildAgentSnapshot {
 	activity?: RlmChildAgentActivity;
 	repliedSinceTask?: boolean;
 	error?: string;
+	/** Isolated git worktree the child runs in (NS-D1); absent for shared-cwd children. */
+	worktreePath?: string;
 }
 
 export type CompactionReason = "manual" | "threshold" | "overflow" | "requested";
@@ -444,6 +490,8 @@ export interface AgentSessionConfig {
 	rlmSessionDir?: string;
 	rlmParentNodeId?: string;
 	rlmParentAgent?: string;
+	/** NS-D1: isolated git worktree the child session runs in (child doctrine). */
+	rlmWorktree?: { path: string; repoRoot: string };
 	subagentRuntimeHost?: SubagentRuntimeHost;
 	autonomous?: AgentAutonomousConfig;
 	prewarmIpythonKernel?: boolean;
@@ -604,6 +652,12 @@ interface PreparedTurnPayload extends SessionTurnPayload {
 	acceptedBeforeCompletion: boolean;
 	captureRunMessages?: Set<AgentMessage>;
 	cancelledDispatchEnded?: boolean;
+	/**
+	 * D2 steering emulation: the queued records were mirrored into `Agent.steer()` so the
+	 * frozen loop injects them at its per-turn poll while the run keeps going. Cleared when
+	 * the run ends without draining them (the pump then delivers them the legacy way).
+	 */
+	steered?: boolean;
 }
 
 interface PreparedCommandPayload extends SessionCommandPayload {
@@ -742,6 +796,59 @@ function visibleSessionActionProjection(actions: readonly QueuedSessionAction[])
 
 const IPYTHON_SENT_AGENT_MESSAGE_CUSTOM_ENTRY = "ipython_sent_agent_message";
 
+/**
+ * How a `next_turn_boundary` (steering) message reaches the model (D2, route (b)).
+ * - "inject" (default): `Agent.steer()` — the frozen loop drains it at its per-turn poll
+ *   (`packages/agent/src/agent-loop.ts:397`) and the run continues: one `agent_start`,
+ *   no `turnIndex` reset, no `before_agent_start` re-run.
+ * - "restart": legacy stop-and-restart — `shouldStopAfterTurn` ends the run and the session
+ *   pump re-prompts. `EVOPI_STEER_MODE=restart` selects it.
+ */
+export type SteerDeliveryMode = "inject" | "restart";
+
+export function resolveSteerDeliveryMode(env: NodeJS.ProcessEnv = process.env): SteerDeliveryMode {
+	return (env.EVOPI_STEER_MODE ?? "").trim().toLowerCase() === "restart" ? "restart" : "inject";
+}
+
+/** `EVOPI_STEER_AUTO_RESUME=off|0|false` keeps the pre-D2 manual resume after Esc/Ctrl+C. */
+export function resolveSteerAutoResume(env: NodeJS.ProcessEnv = process.env): boolean {
+	const value = (env.EVOPI_STEER_AUTO_RESUME ?? "").trim().toLowerCase();
+	return !(value === "off" || value === "0" || value === "false");
+}
+
+/** Steering messages the session hands to `Agent.steer()` are aborted-signal marked with this reason. */
+const STEER_PENDING_ABORT_REASON = "Steering message queued";
+
+/** Result of {@link AgentSession.rewindEdits}. */
+export interface EditRewindOutcome extends EditRewindResult {
+	/** Listing item the target belonged to, when it maps onto one. */
+	item?: EditCheckpointListItem;
+	/** `--with-conversation` moved the leaf to before that turn's user message. */
+	navigated: boolean;
+	/** Text of that user message (put back in the editor by clients), when navigated. */
+	editorText?: string;
+	kernelRestarted: boolean;
+}
+
+export function formatEditRewindOutcome(outcome: EditRewindOutcome): string {
+	const lines: string[] = [];
+	const where = outcome.item?.turn
+		? `before turn ${outcome.item.turn.ordinal}${outcome.item.turn.preview ? ` "${outcome.item.turn.preview}"` : ""}`
+		: `before checkpoint ${outcome.fromSeq}`;
+	const count = outcome.restored.length + outcome.removed.length;
+	lines.push(`Rewound ${count} file${count === 1 ? "" : "s"} to their state ${where}.`);
+	for (const path of outcome.restored) lines.push(`  restored ${path}`);
+	for (const path of outcome.removed) lines.push(`  removed ${path}`);
+	for (const path of outcome.unchanged) lines.push(`  unchanged ${path} (already at that state)`);
+	for (const skipped of outcome.skipped) {
+		lines.push(`  skipped ${skipped.path} (${skipped.reason}${skipped.detail ? `: ${skipped.detail}` : ""})`);
+	}
+	if (outcome.navigated) lines.push("Conversation moved to before that turn; the message text is back in the editor.");
+	if (outcome.kernelRestarted) lines.push("Python kernel restarted.");
+	else lines.push("Python kernel namespace untouched (use --restart-kernel to restart it).");
+	return lines.join("\n");
+}
+
 interface PersistedIpythonSentAgentMessage {
 	toolCallId: string;
 	message: KernelSentAgentMessage;
@@ -872,8 +979,26 @@ import type { RlmMaxDepthSource, RlmMaxDepthStatus, SetRlmMaxDepthResult } from 
 
 export type { RlmMaxDepthSource, RlmMaxDepthStatus, SetRlmMaxDepthResult } from "./rlm-max-depth.js";
 
+import {
+	type KernelCellTimeoutStatus,
+	parseKernelCellTimeoutEnv,
+	type SetKernelCellTimeoutResult,
+} from "./kernel-cell-timeout.js";
+
+export type {
+	KernelCellTimeoutSource,
+	KernelCellTimeoutStatus,
+	SetKernelCellTimeoutResult,
+} from "./kernel-cell-timeout.js";
+
 interface PersistedRlmMaxDepthState {
 	maxDepth: number;
+}
+
+/** `/kernel timeout` override for this chat, persisted in the session log (A4). */
+interface PersistedKernelCellTimeoutState {
+	/** 0 = no cap. */
+	timeoutMs: number;
 }
 
 type AutonomousRuntimeSnapshot = Pick<
@@ -920,6 +1045,10 @@ interface RlmChildRun {
 	emitUpdate?: () => void;
 	lastEmittedUpdate?: string;
 	unsubscribe?: () => void;
+	/** Isolated git worktree (NS-D1); absent for shared-cwd children. */
+	worktree?: SubagentWorktreeHandle;
+	/** Memoized capture → patch → apply → remove of the worktree; every exit path settles it once. */
+	worktreeSettlement?: Promise<SubagentWorktreeOutcome>;
 }
 
 interface RetainedRlmChild {
@@ -927,12 +1056,133 @@ interface RetainedRlmChild {
 	run?: RlmChildRun;
 }
 
+/**
+ * Subagent runtime options plus the child working directory (NS-D1). Hosts must
+ * create the child session with `cwd` when set; it defaults to the parent's cwd.
+ * Kept as an intersection until `CreateRlmSubagentRuntimeOptions` carries `cwd`.
+ */
+export type RlmSubagentRuntimeCwdOptions = CreateRlmSubagentRuntimeOptions & {
+	cwd?: string;
+	worktree?: { path: string; repoRoot: string };
+};
+
+export interface RlmChildWorktreeNoticeDetails {
+	kind: "worktree";
+	childId: string;
+	sessionName: string;
+	worktreePath: string;
+	repoRoot: string;
+	patchPath?: string;
+	files: string[];
+	applyStatus?: SubagentPatchApplyStatus;
+	error?: string;
+}
+
+export interface RlmChildIsolationFallbackDetails {
+	kind: "isolation_fallback";
+	childId: string;
+	sessionName: string;
+	reason: string;
+}
+
+/** Parent-facing outcome of an isolated child's worktree; renders as an RLM child status row. */
+function createRlmChildWorktreeNoticeMessage(
+	details: { childId: string; sessionName: string; outcome: SubagentWorktreeOutcome },
+	timestamp = Date.now(),
+): CustomMessage<RlmChildWorktreeNoticeDetails> {
+	const { outcome } = details;
+	return {
+		role: "custom",
+		customType: RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE,
+		content:
+			`RLM child ${details.sessionName} (${details.childId}) ran in an isolated worktree and was closed ` +
+			`(isolated children are not resumable). ${formatSubagentWorktreeOutcome(outcome)}`,
+		display: true,
+		details: {
+			kind: "worktree",
+			childId: details.childId,
+			sessionName: details.sessionName,
+			worktreePath: outcome.worktreePath,
+			repoRoot: outcome.repoRoot,
+			...(outcome.patchPath ? { patchPath: outcome.patchPath } : {}),
+			files: outcome.files,
+			...(outcome.apply ? { applyStatus: outcome.apply.status } : {}),
+			...(outcome.apply?.error || outcome.captureError || outcome.removeError
+				? { error: outcome.apply?.error ?? outcome.captureError ?? outcome.removeError }
+				: {}),
+		},
+		timestamp,
+	};
+}
+
+/** `subagent.worktree.mode: always` could not isolate this child; it runs in the shared checkout. */
+function createRlmChildIsolationFallbackMessage(
+	details: { childId: string; sessionName: string; reason: string },
+	timestamp = Date.now(),
+): CustomMessage<RlmChildIsolationFallbackDetails> {
+	return {
+		role: "custom",
+		customType: RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE,
+		content:
+			`RLM child ${details.sessionName} (${details.childId}) could not be isolated (${details.reason}); ` +
+			"it runs in the shared checkout instead of a git worktree.",
+		display: true,
+		details: { kind: "isolation_fallback", ...details },
+		timestamp,
+	};
+}
+
+/** Appended to the spawn task of an isolated child so it knows where it runs and what happens after. */
+function isolatedWorktreeTaskNote(worktree: SubagentWorktreeHandle): string {
+	return (
+		`[isolation] You are working in an isolated git worktree at ${worktree.path} ` +
+		`(a detached checkout of ${worktree.repoRoot} that mirrors the parent's uncommitted changes). ` +
+		"Never modify files outside this tree or in the original repository. When you finish, your file " +
+		"changes are captured as a patch and applied to the parent checkout; do not create branches, commit, " +
+		"or push. Send your final result to the parent before finishing: this session closes when the task " +
+		"ends and cannot be resumed."
+	);
+}
+
+function formatSubagentWorktreeEntry(entry: SubagentWorktreeEntry): string {
+	const owner = entry.owner;
+	const parts = [owner ? `pid ${owner.pid}` : "no owner marker"];
+	if (owner?.startedAt) parts.push(`started ${owner.startedAt}`);
+	if (owner?.repoRoot) parts.push(`repo ${owner.repoRoot}`);
+	if (!entry.exists) parts.push("directory missing");
+	return `${entry.state.padEnd(6)} ${entry.path} (${parts.join(", ")})`;
+}
+
+function formatSubagentWorktreeList(baseDir: string, entries: SubagentWorktreeEntry[], mode: string): string {
+	if (entries.length === 0) return `No subagent worktrees under ${baseDir} (subagent.worktree.mode: ${mode}).`;
+	const count = (state: SubagentWorktreeEntry["state"]) => entries.filter((entry) => entry.state === state).length;
+	return [
+		`Subagent worktrees under ${baseDir} (${entries.length} total: ${count("live")} live, ${count("stale")} stale, ${count("orphan")} orphan; subagent.worktree.mode: ${mode}):`,
+		...entries.map(formatSubagentWorktreeEntry),
+		"Run /worktree prune to remove stale entries (--all also removes live and orphan entries; --dry-run previews).",
+	].join("\n");
+}
+
+function formatSubagentWorktreePrune(baseDir: string, result: PruneStaleWorktreesResult): string {
+	const verb = result.dryRun ? "Would remove" : "Removed";
+	const noun = `${result.removed.length} worktree${result.removed.length === 1 ? "" : "s"}`;
+	const lines = [`${verb} ${noun} under ${baseDir}; kept ${result.kept.length}.`];
+	for (const path of result.removed) lines.push(`  ${result.dryRun ? "would remove" : "removed"} ${path}`);
+	for (const failure of result.failed) lines.push(`  failed ${failure.path}: ${failure.error}`);
+	return lines.join("\n");
+}
+
+/** Startup prunes (NS-D1) run at most once per base directory per interval in this process. */
+const STARTUP_WORKTREE_PRUNE_INTERVAL_MS = 10 * 60_000;
+const startupWorktreePrunes = new Map<string, { at: number; promise: Promise<PruneStaleWorktreesResult> }>();
+
 interface RlmSubagentModelSelection {
 	model: Model<Api>;
 }
 
 const KERNEL_STATE_LISTING_TIMEOUT_MS = 5000;
 const RLM_MAX_DEPTH_STATE_CUSTOM_TYPE = "rlm_max_depth_state";
+const KERNEL_CELL_TIMEOUT_STATE_CUSTOM_TYPE = "kernel_cell_timeout_state";
 
 function noopRlmChildAbort(): void {}
 function noopRlmChildEventUnsubscribe(): void {}
@@ -966,6 +1216,14 @@ function parseDepth(value: string | undefined, fallback: number, name: string): 
 function isPersistedRlmMaxDepthState(value: unknown): value is PersistedRlmMaxDepthState {
 	return (
 		typeof value === "object" && value !== null && isNonNegativeInteger((value as PersistedRlmMaxDepthState).maxDepth)
+	);
+}
+
+function isPersistedKernelCellTimeoutState(value: unknown): value is PersistedKernelCellTimeoutState {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		isNonNegativeInteger((value as PersistedKernelCellTimeoutState).timeoutMs)
 	);
 }
 
@@ -1062,8 +1320,14 @@ export class AgentSession {
 	};
 	private _agentEventQueue: Promise<void> = Promise.resolve();
 
-	/** Session-owned actions. Items are never fed into Agent.steer/followUp. */
+	/**
+	 * Session-owned actions. Follow-ups are never fed into Agent.followUp. Steering turns are
+	 * mirrored into Agent.steer() while a run is active (D2 "inject" mode) and stay owned here
+	 * until the loop drains them; see {@link _trySteerAction}.
+	 */
 	private readonly _actionStore = new ActionStore<QueuedSessionAction>();
+	/** Aborted while a steering message waits for the next turn boundary (L2/L3 signal for tools). */
+	private _steerPendingController = new AbortController();
 	private _sessionInputPump: Promise<void> = Promise.resolve();
 	private _sessionInputPumpRequested = false;
 	// Invalidates preparation when a branch pause starts and finishes before its next await resumes.
@@ -1160,6 +1424,8 @@ export class AgentSession {
 	private _ipythonKernelProvisioner?: IpythonKernelProvisioner;
 	/** Artifact dir backing the current provisioner's kernel snapshot, if any. */
 	private _ipythonKernelSnapshotDir?: string;
+	/** NS-D4: byte cursor into edit-checkpoints/index.jsonl; records past it are unattributed. */
+	private _editCheckpointIndexOffset?: number;
 	/** True once the runtime has been built once; later builds are in-process rebuilds (/reload). */
 	private _ipythonRuntimeBuilt = false;
 	private readonly _prewarmIpythonKernel: boolean;
@@ -1167,12 +1433,17 @@ export class AgentSession {
 	private readonly _configuredRlmMaxDepth: number | undefined;
 	private _rlmMaxDepth: number;
 	private _rlmMaxDepthSource: RlmMaxDepthSource;
+	/** `/kernel timeout` override for this chat (ms, 0 = off); undefined = env/settings/default. */
+	private _kernelCellTimeoutOverrideMs: number | undefined;
 	private _rlmSessionDir?: string;
 	private _rlmParentNodeId?: string;
 	private _rlmParentAgent?: string;
+	private _rlmWorktree?: { path: string; repoRoot: string };
 	private _repliedToParentSinceTask: boolean | undefined;
 	private _parentReplyCount = 0;
 	private _subagentRuntimeHost?: SubagentRuntimeHost;
+	/** Detached startup prune of stale subagent worktrees (NS-D1); undefined when not scheduled. */
+	private _startupSubagentWorktreePrune?: Promise<PruneStaleWorktreesResult>;
 	private _activeRlmChildRuns = new Map<string, RlmChildRun>();
 	private _unsettledRlmChildRuns = new Set<RlmChildRun>();
 	private _abandonedRlmQuiescenceChildIds = new Set<string>();
@@ -1270,12 +1541,14 @@ export class AgentSession {
 		const resolvedRlmMaxDepth = this._resolveRlmMaxDepth();
 		this._rlmMaxDepth = resolvedRlmMaxDepth.maxDepth;
 		this._rlmMaxDepthSource = resolvedRlmMaxDepth.source;
+		this._kernelCellTimeoutOverrideMs = this._loadPersistedKernelCellTimeoutState()?.timeoutMs;
 		this._prewarmIpythonKernel = (config.prewarmIpythonKernel ?? false) && this._rlmDepth === 0;
 		this._autoRefineReviewer = config.autoRefineReviewer;
 		this._serializedRefine = config.serializedRefine ?? false;
 		this._rlmSessionDir = config.rlmSessionDir;
 		this._rlmParentNodeId = config.rlmParentNodeId;
 		this._rlmParentAgent = config.rlmParentAgent;
+		this._rlmWorktree = config.rlmWorktree;
 		// A resumed child may have replied before this process started; false would
 		// claim knowledge that is not present in the session transcript.
 		this._repliedToParentSinceTask =
@@ -1312,6 +1585,39 @@ export class AgentSession {
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
+		if (this._rlmDepth === 0) this._scheduleStartupSubagentWorktreePrune();
+	}
+
+	/**
+	 * NS-D1: when a depth-0 session starts with isolation enabled, drop worktrees
+	 * whose owner process is gone (best-effort, detached, throttled per base dir).
+	 * Mode off never touches the filesystem; `/worktree prune` is the manual path.
+	 */
+	private _scheduleStartupSubagentWorktreePrune(): void {
+		let settings: ReturnType<SettingsManager["getSubagentWorktreeSettings"]>;
+		try {
+			settings = this.settingsManager.getSubagentWorktreeSettings();
+		} catch {
+			return;
+		}
+		if (settings.mode === "off") return;
+		const baseDir = subagentWorktreeBaseDir(settings.base);
+		const previous = startupWorktreePrunes.get(baseDir);
+		const now = Date.now();
+		if (previous && now - previous.at < STARTUP_WORKTREE_PRUNE_INTERVAL_MS) {
+			this._startupSubagentWorktreePrune = previous.promise;
+			return;
+		}
+		const promise = pruneStaleWorktrees(baseDir).catch(
+			(): PruneStaleWorktreesResult => ({ dryRun: false, entries: [], removed: [], kept: [], failed: [] }),
+		);
+		startupWorktreePrunes.set(baseDir, { at: now, promise });
+		this._startupSubagentWorktreePrune = promise;
+	}
+
+	/** Startup prune of stale subagent worktrees (NS-D1), or undefined when none was scheduled. */
+	get startupSubagentWorktreePrune(): Promise<PruneStaleWorktreesResult> | undefined {
+		return this._startupSubagentWorktreePrune;
 	}
 
 	/** Refreshes MCP provider registrations without rebuilding the session runtime. */
@@ -1583,6 +1889,50 @@ export class AgentSession {
 		return undefined;
 	}
 
+	private _loadPersistedKernelCellTimeoutState(): PersistedKernelCellTimeoutState | undefined {
+		const branch = this.sessionManager.getBranch();
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i];
+			if (
+				entry.type === "custom" &&
+				entry.customType === KERNEL_CELL_TIMEOUT_STATE_CUSTOM_TYPE &&
+				isPersistedKernelCellTimeoutState(entry.data)
+			) {
+				return entry.data;
+			}
+		}
+		return undefined;
+	}
+
+	/** Effective cap for the next cell: chat override > env > settings > default. */
+	private _resolveKernelCellTimeout(): Pick<KernelCellTimeoutStatus, "timeoutMs" | "source" | "envTimeoutMs"> {
+		const envTimeoutMs = parseKernelCellTimeoutEnv(process.env.EVOPI_KERNEL_CELL_TIMEOUT_MS);
+		const envHint = envTimeoutMs !== undefined ? { envTimeoutMs } : {};
+		if (this._kernelCellTimeoutOverrideMs !== undefined) {
+			return { timeoutMs: this._kernelCellTimeoutOverrideMs, source: "chat", ...envHint };
+		}
+		const timeoutMs = this.settingsManager.getKernelCellTimeoutMs();
+		if (envTimeoutMs !== undefined) {
+			return { timeoutMs, source: "env", ...envHint };
+		}
+		const configured =
+			this.settingsManager.getProjectSettings().kernel?.cellTimeoutMs ??
+			this.settingsManager.getGlobalSettings().kernel?.cellTimeoutMs;
+		const fromSettings =
+			(typeof configured === "number" && Number.isFinite(configured) && configured >= 0) ||
+			timeoutMs !== DEFAULT_KERNEL_CELL_TIMEOUT_MS;
+		return { timeoutMs, source: fromSettings ? "settings" : "default" };
+	}
+
+	/** Cap handed to the ipython tool for each new cell (re-read per cell). */
+	private _currentKernelCellTimeoutMs(): number {
+		return this._kernelCellTimeoutOverrideMs ?? this.settingsManager.getKernelCellTimeoutMs();
+	}
+
+	private _reloadKernelCellTimeoutFromBranch(): void {
+		this._kernelCellTimeoutOverrideMs = this._loadPersistedKernelCellTimeoutState()?.timeoutMs;
+	}
+
 	private _resolveRlmMaxDepth(): {
 		maxDepth: number;
 		source: RlmMaxDepthSource;
@@ -1737,6 +2087,12 @@ export class AgentSession {
 		}
 		for (const action of actions) {
 			const ticket = this._actionStore.ticketFor(action);
+			if (action.payload.kind === "turn" && action.payload.steered) {
+				// Keep the agent steering queue in sync with the store.
+				const messages = new Set<AgentMessage>(action.payload.records.map((record) => record.message));
+				this.agent.removeQueuedMessages((message) => messages.has(message));
+				action.payload.steered = false;
+			}
 			if (
 				action.payload.kind === "turn" &&
 				(action.payload.acceptedAgentMessage ||
@@ -1772,7 +2128,10 @@ export class AgentSession {
 			}
 		}
 		this._pendingNextTurnMessages.unshift(...restorableMessages);
-		if (actions.length > 0) this._notifySessionInputCheckpointChange();
+		if (actions.length > 0) {
+			this._notifySessionInputCheckpointChange();
+			this._refreshSteerPending();
+		}
 		return actions;
 	}
 
@@ -2196,7 +2555,10 @@ export class AgentSession {
 
 	private get _steeringStopPending(): boolean {
 		return (
-			this._actionStore.queuedActions("next_turn_boundary").length > 0 ||
+			// Steered turns are delivered by the loop's own poll; they must not stop the run.
+			this._actionStore
+				.queuedActions("next_turn_boundary")
+				.some((action) => !(action.payload.kind === "turn" && action.payload.steered)) ||
 			this._actionStore
 				.activeActions("next_turn_boundary")
 				.some(
@@ -2209,6 +2571,162 @@ export class AgentSession {
 
 	private _shouldStopBeforeTurn(): boolean {
 		return this._steeringStopPending;
+	}
+
+	// ---- D2 steering emulation (route (b); the frozen packages/agent loop is untouched) ----
+
+	private _steerDeliveryMode(): SteerDeliveryMode {
+		return resolveSteerDeliveryMode();
+	}
+
+	/** A steering turn admitted now can ride the active run's per-turn poll instead of restarting it. */
+	private _canSteerNow(): boolean {
+		return (
+			this._steerDeliveryMode() === "inject" &&
+			this.agent.state.isStreaming &&
+			!this._sessionInputPumpSuspended &&
+			this._queuedWorkPauses.size === 0 &&
+			!this._disposed &&
+			!this._disposing &&
+			!this._hasCancelledDispatchCapture()
+		);
+	}
+
+	private _isSteerableAction(action: QueuedSessionAction): action is SessionAction<PreparedTurnPayload> {
+		return (
+			action.payload.kind === "turn" &&
+			action.delivery === "next_turn_boundary" &&
+			// Goal notices (budget_limit) may be revoked by goal.complete() later in the same run
+			// (`_clearQueuedGoalContexts`); they keep the stop-and-restart path so the revoke wins.
+			action.payload.customMessage?.customType !== GOAL_CONTEXT_CUSTOM_TYPE
+		);
+	}
+
+	/**
+	 * Mirror a queued steering turn into `Agent.steer()`. The action stays `queued` in the store
+	 * (queue UI/edits keep working); `_handleAgentEvent` advances it when the loop emits the
+	 * message (`agent-loop.ts:331-336`) and completes it at `agent_end`.
+	 */
+	private _trySteerAction(action: QueuedSessionAction): boolean {
+		if (!this._isSteerableAction(action) || action.lifecycle.state !== "queued") return false;
+		if (action.payload.steered) return true;
+		if (!this._canSteerNow()) return false;
+		action.payload.steered = true;
+		this.agent.steer(action.payload.records.map((record) => record.message));
+		return true;
+	}
+
+	/** Rebuild the agent steering queue from the store after a queue edit/reorder so both stay in sync. */
+	private _syncSteeredActions(): void {
+		const steerable = this._canSteerNow();
+		const eligible = new Set<QueuedSessionAction>();
+		if (steerable) {
+			for (const action of this._actionStore.queuedActions("next_turn_boundary")) {
+				if (this._isSteerableAction(action)) eligible.add(action);
+			}
+		}
+		let changed = false;
+		for (const action of this._actionStore.ownedActions()) {
+			if (action.payload.kind !== "turn" || !action.payload.steered) continue;
+			if (!eligible.has(action) || action.lifecycle.state !== "queued") {
+				action.payload.steered = false;
+				changed = true;
+			}
+		}
+		for (const action of eligible) {
+			if (action.payload.kind === "turn" && !action.payload.steered) changed = true;
+		}
+		if (changed || eligible.size > 0) {
+			// The session is the only producer of the agent steering queue.
+			this.agent.clearSteeringQueue();
+			for (const action of eligible) {
+				if (action.payload.kind !== "turn") continue;
+				action.payload.steered = true;
+				this.agent.steer(action.payload.records.map((record) => record.message));
+			}
+		}
+		this._refreshSteerPending();
+	}
+
+	/** Take back steered turns the ended run did not drain; the pump delivers them the legacy way. */
+	private _reclaimUndeliveredSteeredActions(): void {
+		let changed = false;
+		for (const action of this._actionStore.queuedActions("next_turn_boundary")) {
+			if (action.payload.kind !== "turn" || !action.payload.steered) continue;
+			const messages = new Set<AgentMessage>(action.payload.records.map((record) => record.message));
+			this.agent.removeQueuedMessages((message) => messages.has(message));
+			action.payload.steered = false;
+			changed = true;
+		}
+		if (changed) this._notifySessionInputCheckpointChange();
+		this._refreshSteerPending();
+	}
+
+	/** Steered turns whose message the run consumed are complete once that run ends (legacy: after `agent.prompt()`). */
+	private _completeSteeredActionsAfterRun(): void {
+		let changed = false;
+		for (const action of this._actionStore.activeActions("next_turn_boundary")) {
+			if (action.payload.kind !== "turn" || !action.payload.steered) continue;
+			if (action.lifecycle.state === "committing" && primaryDeliveryRecord(action).durable) {
+				transitionSessionAction(action, { state: "running", execution: "agent_turn" });
+			}
+			if (action.lifecycle.state !== "running") continue;
+			transitionSessionAction(action, { state: "completed" });
+			this._actionStore.ticketFor(action).settleCompleted();
+			this._settleAgentMessage(action.agentMessageId, "completion");
+			this._actionStore.releaseTerminal(action);
+			changed = true;
+		}
+		if (changed) {
+			this._notifySessionInputCheckpointChange();
+			this._emitQueueUpdate();
+		}
+	}
+
+	/**
+	 * True while a mirrored (steered) user message waits for the active run's next turn boundary.
+	 * Only steered turns count: session-internal notices (goal budget) and queued session commands
+	 * keep the legacy stop-after-batch path and must not skip or interrupt the model's tool calls.
+	 */
+	private _isSteerPending(): boolean {
+		if (this._steerDeliveryMode() !== "inject" || !this.agent.state.isStreaming) return false;
+		return this._actionStore
+			.queuedActions("next_turn_boundary")
+			.some((action) => action.payload.kind === "turn" && action.payload.steered === true);
+	}
+
+	private _refreshSteerPending(): void {
+		const pending = this._isSteerPending();
+		if (pending && !this._steerPendingController.signal.aborted) {
+			this._steerPendingController.abort(new Error(STEER_PENDING_ABORT_REASON));
+		} else if (!pending && this._steerPendingController.signal.aborted) {
+			this._steerPendingController = new AbortController();
+		}
+	}
+
+	/** Per-tool-call steering view for `wrapToolDefinition`; `undefined` in restart mode keeps tools byte-identical. */
+	private _toolSteeringRuntime(): ToolSteeringRuntime | undefined {
+		if (this._steerDeliveryMode() !== "inject") return undefined;
+		this._refreshSteerPending();
+		return { steeringSignal: this._steerPendingController.signal, steerPending: this._isSteerPending() };
+	}
+
+	/** After Esc/Ctrl+C settles, drain preserved steering/follow-up items (omp `#drainStrandedQueuedMessages`). */
+	private _scheduleQueuedWorkResumeAfterAbort(): void {
+		const epoch = this._sessionInputPumpEpoch;
+		void this.agent
+			.waitForIdle()
+			.then(() => this._agentEventQueue)
+			.catch(() => undefined)
+			.then(() => {
+				if (this._disposed || this._disposing) return;
+				// A later abort, clear, pause, or session replacement owns the queue now.
+				if (epoch !== this._sessionInputPumpEpoch) return;
+				if (!this._sessionInputPumpSuspended || this._sessionInputSuspendedForUpdateRestart) return;
+				if (this._queuedWorkPauses.size > 0 || this._sessionInputAdmissionPauses.size > 0) return;
+				if (visibleSessionActionProjection(this._actionStore.queuedActions()).length === 0) return;
+				this.resumeQueuedWork();
+			});
 	}
 
 	private async _shouldStopAfterTurn(context: ShouldStopAfterTurnContext): Promise<boolean> {
@@ -3464,6 +3982,8 @@ export class AgentSession {
 			if (captured.size > 0) {
 				this.agent.state.messages = this.agent.state.messages.filter((message) => !captured.has(message));
 			}
+			// Before the pump wakes on idle: whatever the loop did not drain goes back to the legacy path.
+			this._reclaimUndeliveredSteeredActions();
 		}
 		if (event.type === "message_start" && (event.message.role === "user" || event.message.role === "custom")) {
 			for (const action of this._actionStore.actionsForMessage(event.message)) {
@@ -3471,6 +3991,20 @@ export class AgentSession {
 					action.payload.kind === "turn"
 						? action.payload.records.find((candidate) => candidate.message === event.message)
 						: undefined;
+				if (
+					record &&
+					action.payload.kind === "turn" &&
+					action.payload.steered &&
+					action.lifecycle.state === "queued"
+				) {
+					// The loop drained this steered turn (agent-loop.ts:331-336): mirror the legacy dispatch states.
+					transitionSessionAction(action, { state: "selected" });
+					transitionSessionAction(action, { state: "preparing" });
+					transitionSessionAction(action, { state: "committing" });
+					this._notifySessionInputCheckpointChange();
+					this._refreshSteerPending();
+					this._emitQueueUpdate();
+				}
 				if (record) record.started = true;
 				if (record?.role === "primary") {
 					this._actionStore.ticketFor(action).settleDelivered({ status: "delivered" });
@@ -3621,6 +4155,9 @@ export class AgentSession {
 				event.message.role === "toolResult"
 			) {
 				this.sessionManager.appendMessage(event.message);
+				// NS-D4: correlate before-images the edit skill / hashline_edit wrote
+				// during this tool call with the persisted result (bookkeeping entry only).
+				if (event.message.role === "toolResult") this._recordEditCheckpointsForToolResult(event.message);
 			}
 
 			if (event.message.role === "assistant") {
@@ -3669,6 +4206,7 @@ export class AgentSession {
 		}
 
 		if (clearedDispatchEnded) {
+			if (event.type === "agent_end") this._completeSteeredActionsAfterRun();
 			return;
 		}
 
@@ -3678,6 +4216,7 @@ export class AgentSession {
 				(this._retryPromise ? this._findLastAssistantInMessages(event.messages) : undefined);
 			this._lastAssistantMessage = undefined;
 			if (!msg) {
+				this._completeSteeredActionsAfterRun();
 				this._resolveRetry();
 				return;
 			}
@@ -3695,6 +4234,8 @@ export class AgentSession {
 				});
 				if (didRetry) return; // Retry was initiated, don't proceed to compaction
 			}
+			// Like the legacy prompt path, steered-turn completion includes the retry chain.
+			this._completeSteeredActionsAfterRun();
 
 			const compactionWillRetry = await this._checkCompaction(msg);
 			if (compactionWillRetry && this._retryAttempt > 0) {
@@ -4392,6 +4933,7 @@ export class AgentSession {
 			allowRecursion: this._rlmDepth < this._rlmMaxDepth,
 			rlmDepth: this._rlmDepth,
 			rlmParentAgent: this._rlmParentAgent,
+			rlmWorktree: this._rlmWorktree,
 			harnessState: this._loadMergedHarnessState(),
 			harnessSelector: this._resolveHarnessSelector(),
 			harnessBpeView: this._resolveHarnessBpeView(),
@@ -5618,6 +6160,9 @@ export class AgentSession {
 			disposition,
 		});
 		this._sessionInputArrivalEpoch++;
+		// Synchronous so the loop never observes a stop-worthy queue between admission and the mirror.
+		if (options.restore !== true && disposition === "queued") this._trySteerAction(action);
+		this._refreshSteerPending();
 		this._emitQueueUpdate();
 		if (
 			!options.restore &&
@@ -5718,6 +6263,8 @@ export class AgentSession {
 		try {
 			while (!this._disposed && !this._disposing && this._hasSelectableSessionInput()) {
 				await this.agent.waitForIdle();
+				// A steer admitted during the ended run's agent_end phase was never drained; never prompt it twice.
+				this._reclaimUndeliveredSteeredActions();
 				const preselected = this._actionStore
 					.activeActions()
 					.find((action) => action.lifecycle.state === "selected");
@@ -6134,6 +6681,23 @@ export class AgentSession {
 				case "autonomous":
 					await this._handleAutonomousSlashCommand(input.text);
 					break;
+				case "rewind": {
+					const options = parseRewindCommandOptions(input.command.args);
+					if (options.kind === "list") {
+						resultText = formatEditCheckpointList(this.listEditCheckpoints());
+						break;
+					}
+					const outcome = await this.rewindEdits(options.target, {
+						force: options.force,
+						withConversation: options.withConversation,
+						restartKernel: options.restartKernel,
+					});
+					resultText = formatEditRewindOutcome(outcome);
+					break;
+				}
+				case "worktree":
+					resultText = await this._runWorktreeSlashCommand(parseWorktreeCommandOptions(input.command.args));
+					break;
 			}
 			if (resultText) {
 				this._appendDurableSessionCommandMessage(resultText, input.command, true, false, displayResult);
@@ -6161,6 +6725,21 @@ export class AgentSession {
 			}
 			throw commandError;
 		}
+	}
+
+	/**
+	 * `/worktree list` and `/worktree prune [--all] [--dry-run]` (NS-D1). Runs in the
+	 * session-hosting process, which is where worktrees are created and whose pid the
+	 * owner markers record, so liveness checks are meaningful regardless of the client.
+	 */
+	private async _runWorktreeSlashCommand(options: WorktreeCommandOptions): Promise<string> {
+		const settings = this.settingsManager.getSubagentWorktreeSettings();
+		const baseDir = subagentWorktreeBaseDir(settings.base);
+		if (options.kind === "list") {
+			return formatSubagentWorktreeList(baseDir, await listSubagentWorktrees(baseDir), settings.mode);
+		}
+		const result = await pruneStaleWorktrees(baseDir, { all: options.all, dryRun: options.dryRun });
+		return formatSubagentWorktreePrune(baseDir, result);
 	}
 
 	private _appendDurableSessionCommandMessage(
@@ -6193,6 +6772,154 @@ export class AgentSession {
 		this.agent.state.messages.push(message);
 		this._emit({ type: "message_start", message });
 		this._emit({ type: "message_end", message });
+	}
+
+	/** Persist + display a custom message between turns (durable first, like session-command rows). */
+	private _appendDurableCustomMessage(message: CustomMessage): void {
+		this.sessionManager.appendCustomMessageEntryWithRollback(
+			message.customType,
+			message.content,
+			message.display,
+			message.details,
+		);
+		this.agent.state.messages.push(message);
+		this._emit({ type: "message_start", message });
+		this._emit({ type: "message_end", message });
+	}
+
+	// --- Edit checkpoints / rewind (NS-D4) -----------------------------------
+
+	/** Checkpoint dir for this session, or undefined when disabled or non-persistent (`--no-session`). */
+	private _editCheckpointDir(): string | undefined {
+		if (!this.settingsManager.getEditCheckpointSettings().enabled) return undefined;
+		const artifactDir = this.sessionManager.getSessionArtifactDir();
+		return artifactDir ? editCheckpointDirIn(artifactDir) : undefined;
+	}
+
+	/**
+	 * Skip records already on disk when this process starts attributing (they were
+	 * attributed by an earlier process or are listed as untracked). Runs on every
+	 * runtime build before any tool can execute; idempotent across /reload.
+	 */
+	private _primeEditCheckpointCursor(): void {
+		if (this._editCheckpointIndexOffset !== undefined) return;
+		const dir = this._editCheckpointDir();
+		try {
+			this._editCheckpointIndexOffset = dir ? editCheckpointIndexSize(dir) : 0;
+		} catch {
+			this._editCheckpointIndexOffset = 0;
+		}
+	}
+
+	private _recordEditCheckpointsForToolResult(message: ToolResultMessage): void {
+		if (message.toolName !== "ipython" && message.toolName !== "hashline_edit") return;
+		const dir = this._editCheckpointDir();
+		if (!dir) return;
+		try {
+			const { records, nextOffset } = readEditCheckpointIndexFrom(dir, this._editCheckpointIndexOffset ?? 0);
+			this._editCheckpointIndexOffset = nextOffset;
+			if (records.length === 0) return;
+			this.sessionManager.appendCustomEntry(
+				EDIT_CHECKPOINT_CUSTOM_ENTRY,
+				buildEditCheckpointEntryData(message.toolCallId, message.toolName, records),
+			);
+			const settings = this.settingsManager.getEditCheckpointSettings();
+			const pruned = pruneEditCheckpoints(dir, settings);
+			if (pruned.droppedRecords > 0) this._editCheckpointIndexOffset = editCheckpointIndexSize(dir);
+		} catch {
+			// Bookkeeping only; never fail the turn over checkpoint housekeeping.
+		}
+	}
+
+	private _requireEditCheckpointDir(): string {
+		const dir = this._editCheckpointDir();
+		if (dir) return dir;
+		if (!this.settingsManager.getEditCheckpointSettings().enabled) {
+			throw new Error(
+				"Edit checkpoints are disabled (editCheckpoint.enabled=false or EVOPI_EDIT_CHECKPOINT=off), so there is nothing to rewind.",
+			);
+		}
+		throw new Error("Edit checkpoints need a persistent session; this session runs without one (--no-session).");
+	}
+
+	/** Checkpoints on the current branch, grouped by user turn, plus index-only (shell/untracked) records. */
+	listEditCheckpoints(): EditCheckpointListItem[] {
+		const dir = this._requireEditCheckpointDir();
+		return listEditCheckpoints(this.sessionManager.getBranch(), readEditCheckpointIndex(dir));
+	}
+
+	/**
+	 * Restore files to their state before checkpoint `target` (a listing position
+	 * or seq). Files only: the kernel namespace is untouched. Drifted files
+	 * (changed outside the tracked editors since their last checkpoint) make the
+	 * whole rewind refuse unless `force`. `withConversation` first navigates the
+	 * tree to that turn's user message (like /tree); `restartKernel` restarts the
+	 * Python kernel afterwards. A model-visible notice is appended either way.
+	 */
+	async rewindEdits(
+		target: string,
+		options: { force?: boolean; withConversation?: boolean; restartKernel?: boolean } = {},
+	): Promise<EditRewindOutcome> {
+		const dir = this._requireEditCheckpointDir();
+		const settings = this.settingsManager.getEditCheckpointSettings();
+		const records = readEditCheckpointIndex(dir);
+		const items = listEditCheckpoints(this.sessionManager.getBranch(), records);
+		const resolved = resolveEditCheckpointTarget(items, records, target);
+		const plan = planRewind(dir, records, resolved.seq);
+		if (plan.files.length === 0) throw new Error(`Checkpoint ${target} has no files to restore.`);
+		const drifted = plan.files.filter((file) => file.restorable && file.drift && !file.unchanged);
+		if (drifted.length > 0 && !options.force) {
+			throw new Error(
+				`Refusing to rewind: ${drifted.length} file${drifted.length === 1 ? "" : "s"} changed outside the tracked editors since the last checkpoint (${drifted
+					.map((file) => file.path)
+					.join(", ")}). Re-run with --force to overwrite.`,
+			);
+		}
+		let navigated = false;
+		let editorText: string | undefined;
+		if (options.withConversation) {
+			const turn = resolved.item?.turn;
+			if (!turn) {
+				throw new Error(
+					`Checkpoint ${target} is not tied to a user turn on this branch; rewind it without --with-conversation.`,
+				);
+			}
+			const navigation = await this.navigateTree(turn.entryId, { summarize: false });
+			if (navigation.cancelled) throw new Error("Conversation rewind was cancelled.");
+			navigated = true;
+			editorText = navigation.editorText;
+		}
+		const result = applyRewind(dir, plan, { force: options.force, maxFileBytes: settings.maxFileBytes });
+		if (result.rewindRecords.length > 0) {
+			// Rewinds are listed (and undoable) like edits; keep the attribution cursor
+			// past them so the next tool result does not re-claim them.
+			this.sessionManager.appendCustomEntry(
+				EDIT_CHECKPOINT_CUSTOM_ENTRY,
+				buildEditCheckpointEntryData(`rewind:${result.rewindRecords[0].seq}`, "rewind", result.rewindRecords),
+			);
+			this._editCheckpointIndexOffset = editCheckpointIndexSize(dir);
+		}
+		if (result.restored.length > 0 || result.removed.length > 0) {
+			this._appendDurableCustomMessage(
+				createEditRewindNoticeMessage({
+					fromSeq: resolved.seq,
+					restored: result.restored,
+					removed: result.removed,
+					skipped: result.skipped.map(({ path, reason }) => ({ path, reason })),
+					...(resolved.item?.turn ? { turn: resolved.item.turn } : {}),
+					withConversation: navigated,
+				}),
+			);
+		}
+		let kernelRestarted = false;
+		if (options.restartKernel) {
+			const manager = this._ipythonKernelProvisioner?.manager;
+			if (manager?.isRunning) {
+				await manager.restart();
+				kernelRestarted = true;
+			}
+		}
+		return { ...result, item: resolved.item, navigated, editorText, kernelRestarted };
 	}
 
 	private _throwIfExtensionCommand(text: string): void {
@@ -6444,6 +7171,7 @@ export class AgentSession {
 			const neighbor = projection[index + mutation.direction];
 			if (!neighbor) return "rejected";
 			this._actionStore.swapQueued(item, neighbor);
+			this._syncSteeredActions();
 			this._emitQueueUpdate();
 			return "applied";
 		}
@@ -6484,6 +7212,7 @@ export class AgentSession {
 			item.wake = mutation.lane === "steering" ? "on_lower_boundary" : "external_resume";
 			this._actionStore.moveQueued(item, targetPolicy, this._actionStore.queuedActions(targetPolicy).length);
 		}
+		this._syncSteeredActions();
 		this.resumeQueuedWork();
 		this._emitQueueUpdate();
 		return "applied";
@@ -6967,7 +7696,15 @@ export class AgentSession {
 		return this._resourceLoader;
 	}
 
-	requestAbort(): void {
+	/**
+	 * Abort the active run and everything riding on it. Visible queued steering/follow-up items are
+	 * preserved; by default (D2) they auto-resume once the abort of an active run settles, like omp
+	 * (`#drainStrandedQueuedMessages`). An idle-time `requestAbort()` keeps its suspend-only meaning.
+	 * Pass `resumeQueuedWork: false` (or set `EVOPI_STEER_AUTO_RESUME=off`) to keep the pre-D2
+	 * manual resume on the next submit or queue edit.
+	 */
+	requestAbort(options: { resumeQueuedWork?: boolean } = {}): void {
+		const hadActiveRun = this.agent.state.isStreaming;
 		for (const run of [...this._unsettledRlmChildRuns]) {
 			if (run.status === "cancelled") this._abandonRlmRunForQuiescence(run);
 		}
@@ -6994,12 +7731,16 @@ export class AgentSession {
 		this._autoRefineReviewAbort?.abort();
 		this._refineAbortController?.abort();
 		this.agent.abort();
+		if (hadActiveRun && (options.resumeQueuedWork ?? resolveSteerAutoResume())) {
+			this._scheduleQueuedWorkResumeAfterAbort();
+		}
 	}
 
+	/** Programmatic abort (session switch/fork/new-session, tests): never auto-resumes queued work. */
 	async abort(): Promise<void> {
 		const compactionOperation = this._compactionOperation;
 		const branchSummaryOperation = this._branchSummaryOperation;
-		this.requestAbort();
+		this.requestAbort({ resumeQueuedWork: false });
 		this._cancelActiveRlmChildRuns("Parent session aborted");
 		this._goalAbortInProgress = this._goalState.status === "active";
 		try {
@@ -8286,13 +9027,16 @@ export class AgentSession {
 				};
 			}
 		}
+		// B4: a resolved per-kind cap adds the consolidation addendum to the planner;
+		// undefined (evo off, unset) leaves the request byte-identical.
+		const capPerKind = this.settingsManager.getHarnessCapPerKind();
 		const plan = await planRefinement(
 			this.agent.state.messages,
 			planningState,
 			history,
 			model,
 			apiKey,
-			options,
+			capPerKind === undefined ? options : { ...options, capPerKind },
 			headers,
 			signal,
 			this.thinkingLevel,
@@ -8383,11 +9127,14 @@ export class AgentSession {
 			if (this._disposed || refineAbort.signal.aborted) {
 				throw new Error("Refinement cancelled because the session was disposed.");
 			}
+			// B4: enforce the per-kind cap on the target store (undefined = uncapped, prime behavior).
+			const capPerKind = this.settingsManager.getHarnessCapPerKind();
 			const result = applyRefinementProposal(state, proposal, {
 				id: plan.id,
 				rollbackOf: plan.rollbackOf,
 				scope: targetScope,
 				baselineState: plan.baselineState,
+				...(capPerKind === undefined ? {} : { capPerKind }),
 			});
 			result.harnessStatePath = saveHarnessState(targetHarnessStateDir, state);
 			if (targetScope === "global") {
@@ -9066,17 +9813,20 @@ export class AgentSession {
 				.filter((entry): entry is readonly [string, string[]] => entry !== undefined),
 		);
 		const runner = this._extensionRunner;
-		const wrappedExtensionTools = wrapRegisteredTools(allowedCustomTools, runner);
+		// Same wrapping as extensions/wrapper.ts `wrapRegisteredTools`, plus the session-owned
+		// steering view (D2 L2/L3 + not-yet-started skip) resolved per tool call.
+		const steering = () => this._toolSteeringRuntime();
+		const wrappedExtensionTools = wrapToolDefinitions(
+			allowedCustomTools.map((tool) => tool.definition),
+			() => runner.createContext(),
+			steering,
+		);
 		// Resolve the runner at call time so a rebuild/reload rebinds built-in tools to the
 		// live runner instead of wedging them on the invalidated one's stale-ctx guard.
-		const wrappedBuiltInTools = wrapRegisteredTools(
-			Array.from(this._baseToolDefinitions.values())
-				.filter((definition) => isAllowedTool(definition.name))
-				.map((definition) => ({
-					definition,
-					sourceInfo: createSyntheticSourceInfo(`<builtin:${definition.name}>`, { source: "builtin" }),
-				})),
-			() => this._extensionRunner,
+		const wrappedBuiltInTools = wrapToolDefinitions(
+			Array.from(this._baseToolDefinitions.values()).filter((definition) => isAllowedTool(definition.name)),
+			() => this._extensionRunner.createContext(),
+			steering,
 		);
 
 		const toolRegistry = new Map(wrappedBuiltInTools.map((tool) => [tool.name, tool]));
@@ -9154,12 +9904,19 @@ export class AgentSession {
 					provisioner: this._ipythonKernelProvisioner,
 					commandPrefix: this.settingsManager.getShellCommandPrefix(),
 					shellPath: this.settingsManager.getShellPath(),
-					cellTimeoutMs: this.settingsManager.getKernelCellTimeoutMs(),
+					cellTimeoutMs: () => this._currentKernelCellTimeoutMs(),
 					onLateSentAgentMessage: (toolCallId, message) =>
 						this._recordLateIpythonSentAgentMessage(toolCallId, message),
 				},
 			});
+			// NS-D4: the host-side structural editor snapshots before-images into the
+			// same store as the kernel edit skill (no-op when checkpoints are off).
+			configuredBaseToolDefinitions.hashline_edit = createHashlineEditToolDefinition(this._cwd, {
+				checkpointDir: () => this._editCheckpointDir(),
+				checkpointMaxFileBytes: this.settingsManager.getEditCheckpointSettings().maxFileBytes,
+			}) as ToolDefinition;
 		}
+		this._primeEditCheckpointCursor();
 
 		this._baseToolDefinitions = new Map(
 			Object.entries(configuredBaseToolDefinitions).map(([name, tool]) => [name, tool as ToolDefinition]),
@@ -9396,6 +10153,15 @@ export class AgentSession {
 			// ephemeral sessions fall back to the RLM session dir once it exists.
 			env.RLM_HARNESS_STATE_DIR = this._localHarnessStateDir() ?? getLocalHarnessStateDir(rlmSessionDir)!;
 		}
+		// NS-D4: the edit skill captures before-images only when this is set, so a
+		// disabled feature or a non-persistent session leaves the kernel env unchanged.
+		const editCheckpointDir = this._editCheckpointDir();
+		if (editCheckpointDir) {
+			env[EDIT_CHECKPOINT_DIR_ENV] = editCheckpointDir;
+			env[EDIT_CHECKPOINT_MAX_FILE_BYTES_ENV] = String(
+				this.settingsManager.getEditCheckpointSettings().maxFileBytes,
+			);
+		}
 		this._addWebsearchKeyEnv(env);
 		return env;
 	}
@@ -9530,8 +10296,10 @@ export class AgentSession {
 		return this._createInlineRlmSubagentRuntime(options);
 	}
 
-	private _createInlineRlmSubagentRuntime(options: CreateRlmSubagentRuntimeOptions): RlmSubagentRuntime {
-		const childSessionManager = SessionManager.create(this._cwd, options.sessionDir);
+	private _createInlineRlmSubagentRuntime(options: RlmSubagentRuntimeCwdOptions): RlmSubagentRuntime {
+		// NS-D1: an isolated child lives in its worktree; otherwise it shares the parent's cwd.
+		const childCwd = options.cwd ?? this._cwd;
+		const childSessionManager = SessionManager.create(childCwd, options.sessionDir);
 		if (options.parentSession.sessionFile) {
 			childSessionManager.newSession({
 				parentSession: options.parentSession.sessionFile,
@@ -9569,7 +10337,7 @@ export class AgentSession {
 			agent: childAgent,
 			sessionManager: childSessionManager,
 			settingsManager: this.settingsManager,
-			cwd: this._cwd,
+			cwd: childCwd,
 			agentDir: this._agentDir,
 			scopedModels: options.scopedModels,
 			resourceLoader: this._resourceLoader,
@@ -9584,6 +10352,7 @@ export class AgentSession {
 			rlmSessionDir: options.sessionDir,
 			rlmParentNodeId: options.rlmParentNodeId,
 			rlmParentAgent: options.parentSession.sessionName ?? options.parentSession.sessionId,
+			rlmWorktree: options.worktree,
 			sessionStartEvent: { type: "session_start", reason: "startup" },
 		});
 		if (child.sessionName !== options.sessionName) {
@@ -10138,6 +10907,7 @@ export class AgentSession {
 			activity: run.activity,
 			repliedSinceTask: child?._repliedToParentSinceTask,
 			error: run.error,
+			...(run.worktree ? { worktreePath: run.worktree.path } : {}),
 		};
 	}
 
@@ -10436,12 +11206,46 @@ export class AgentSession {
 		return { model };
 	}
 
+	/**
+	 * NS-D1: isolated children are closed (never retained) before their worktree is
+	 * captured, so no kernel or bash process still has a cwd inside it.
+	 */
+	private async _closeIsolatedRlmChild(
+		run: RlmChildRun,
+		runtime: RlmSubagentRuntime | undefined,
+		options: CreateRlmSubagentRuntimeOptions,
+		child: AgentSession,
+	): Promise<void> {
+		const host = this._subagentRuntimeHost;
+		try {
+			if (runtime && host?.releaseRlmSubagentRuntime) {
+				await host.releaseRlmSubagentRuntime(runtime, options, "done");
+			} else if (runtime && host) {
+				await host.deleteRlmSubagentRuntime(run.id, child);
+			} else {
+				await child.disposeAsync();
+			}
+		} catch {
+			await child.disposeAsync().catch(() => undefined);
+		}
+	}
+
+	/** A host that ignores `cwd` would silently run an "isolated" child in the shared checkout. */
+	private _assertIsolatedRlmChildCwd(child: AgentSession, worktree: SubagentWorktreeHandle): void {
+		const childCwd = resolve(child.sessionManager.getCwd());
+		if (childCwd === resolve(worktree.path)) return;
+		throw new Error(
+			`Isolated child was created in ${childCwd} instead of its worktree ${worktree.path}; ` +
+				"the subagent runtime host must honor the requested cwd",
+		);
+	}
+
 	private async _startRlmChildRun(
 		prompt: string,
 		kwargs: Record<string, unknown> = {},
 		spawnCode?: string,
-	): Promise<RlmSpawnHandle> {
-		const { name: rawName, model: rawModel, thinking: rawThinking, ...unsupported } = kwargs;
+	): Promise<RlmSpawnHandle & { worktree?: string }> {
+		const { name: rawName, model: rawModel, thinking: rawThinking, isolated: rawIsolated, ...unsupported } = kwargs;
 		const unsupportedKwargs = Object.keys(unsupported);
 		if (unsupportedKwargs.length > 0) {
 			throw new Error(`Unsupported rlm.run kwargs: ${unsupportedKwargs.sort().join(", ")}`);
@@ -10449,6 +11253,10 @@ export class AgentSession {
 		const requestedSessionName = normalizeRequestedRlmSubagentSessionName(rawName);
 		const requestedModel = normalizeRequestedRlmSubagentModel(rawModel);
 		const requestedThinkingLevel = normalizeRequestedRlmSubagentThinkingLevel(rawThinking);
+		// NS-D1: off rejects explicit isolated=True; opt-in isolates only on True; always unless False.
+		const requestedIsolation = normalizeRequestedRlmSubagentIsolation(rawIsolated);
+		const worktreeSettings = this.settingsManager.getSubagentWorktreeSettings();
+		let isolate = resolveSubagentIsolation(requestedIsolation, worktreeSettings.mode);
 		if (requestedSessionName) assertDirectAgentMessageTarget(requestedSessionName);
 		if (this._rlmDepth >= this._rlmMaxDepth) {
 			throw new Error(
@@ -10476,12 +11284,46 @@ export class AgentSession {
 				);
 			}
 		}
+		let isolationFallbackReason: string | undefined;
+		if (isolate) {
+			let failure: string | undefined;
+			try {
+				if (!(await resolveGitRepoRoot(this._cwd))) failure = `cwd is not inside a git repository: ${this._cwd}`;
+			} catch (error) {
+				failure = error instanceof Error ? error.message : String(error);
+			}
+			if (failure) {
+				if (requestedIsolation === true) {
+					throw new Error(`rlm.run isolated=True cannot isolate the child: ${failure}`);
+				}
+				// Implicit isolation (mode always) falls back to the shared checkout with a notice.
+				isolate = false;
+				isolationFallbackReason = failure;
+			}
+		}
 		if (this._disposed || this._disposing) throw new Error("Cannot spawn a subagent after its parent was disposed");
 
 		const childSessionDir = this._createChildRlmSessionDir();
 		const childNodeId = basename(childSessionDir);
 		const sessionName = requestedSessionName ?? createDefaultRlmSubagentSessionName(prompt, childNodeId);
 		if (!requestedSessionName) await this._assertRlmSubagentSessionNameAvailable(sessionName);
+		// The worktree is created during admission so its failures (no commits, oversized
+		// dirty state, missing git) reach the spawn call instead of a detached notice.
+		let worktree: SubagentWorktreeHandle | undefined;
+		if (isolate) {
+			worktree = await createSubagentWorktree({
+				cwd: this._cwd,
+				childId: childNodeId,
+				parentSessionId: this.sessionId,
+				baseDir: subagentWorktreeBaseDir(worktreeSettings.base),
+				seedDirty: worktreeSettings.seedDirty,
+				maxSeedBytes: worktreeSettings.maxSeedBytes,
+			});
+			if (this._disposed || this._disposing) {
+				await removeSubagentWorktree(worktree).catch(() => undefined);
+				throw new Error("Cannot spawn a subagent after its parent was disposed");
+			}
+		}
 		const startedAt = Date.now();
 		const parentAssistantForUsage = this._findLastAssistantMessage();
 		let runningToolCount = 0;
@@ -10499,6 +11341,7 @@ export class AgentSession {
 			publication: createAgentMessageDeferred(),
 			settlement: createAgentMessageDeferred(),
 			deletionReservation: createAgentMessageDeferred(),
+			...(worktree ? { worktree } : {}),
 		};
 		const throwIfCancelled = () => {
 			if (run.status === "cancelled") throw new Error(run.error ?? "RLM child cancelled");
@@ -10525,7 +11368,7 @@ export class AgentSession {
 			// blocked and run.abort was still a no-op.
 			if (run.status === "cancelled") run.abort();
 		};
-		const subagentOptions: CreateRlmSubagentRuntimeOptions = {
+		const subagentOptions: RlmSubagentRuntimeCwdOptions = {
 			...this._createRlmSubagentRuntimeOptions({
 				id: childNodeId,
 				prompt,
@@ -10536,12 +11379,33 @@ export class AgentSession {
 				thinkingLevel: requestedThinkingLevel,
 			}),
 			onSessionPublished: publishChildSession,
+			// Only isolated children carry a cwd, so the default host payload is unchanged.
+			...(worktree ? { cwd: worktree.path, worktree: { path: worktree.path, repoRoot: worktree.repoRoot } } : {}),
 		};
 
 		const deliverTerminalMessageToParent = async (message: CustomMessage): Promise<void> => {
 			// Synthesized lifecycle notices always use the parent's private durable
 			// path. Explicit child replies continue through agent_message separately.
 			await this._deferRlmTerminalNotice(message);
+		};
+
+		// NS-D1: capture the delta, write worktree.patch, apply it when requested, and
+		// remove the worktree. Memoized so every exit path settles the worktree once;
+		// `apply` is honored only by the first caller (success applies, others retain).
+		const settleWorktree = (apply: boolean): Promise<SubagentWorktreeOutcome> | undefined => {
+			if (!run.worktree) return undefined;
+			run.worktreeSettlement ??= completeSubagentWorktree(run.worktree, {
+				patchDir: childSessionDir,
+				merge: worktreeSettings.merge,
+				apply,
+			});
+			return run.worktreeSettlement;
+		};
+		const deliverWorktreeNotice = async (outcome: SubagentWorktreeOutcome): Promise<void> => {
+			if (run.detachedDeletion || run.suppressTerminalNotice || this._disposed || this._disposing) return;
+			await deliverTerminalMessageToParent(
+				createRlmChildWorktreeNoticeMessage({ childId: run.id, sessionName, outcome }),
+			);
 		};
 
 		run.completeDeletion = () => {
@@ -10579,12 +11443,23 @@ export class AgentSession {
 		void (async () => {
 			let childRuntime: RlmSubagentRuntime | undefined;
 			try {
+				if (isolationFallbackReason && !run.suppressTerminalNotice) {
+					// Informational; never delay the child's start on the notice fence.
+					void deliverTerminalMessageToParent(
+						createRlmChildIsolationFallbackMessage({
+							childId: run.id,
+							sessionName,
+							reason: isolationFallbackReason,
+						}),
+					).catch(() => undefined);
+				}
 				childRuntime = await this._createRlmSubagentRuntime(subagentOptions);
 				const child = childRuntime.session;
 				if (run.status === "cancelled") throw new Error(run.error ?? "RLM child cancelled");
 				if (child.sessionName !== sessionName) child.setSessionName(sessionName);
 				publishChildSession(child);
 				throwIfCancelled();
+				if (run.worktree) this._assertIsolatedRlmChildCwd(child, run.worktree);
 				run.status = "running";
 				emitChildUpdate();
 				const unsubscribeChildEvents = child.subscribe((event) => {
@@ -10651,7 +11526,9 @@ export class AgentSession {
 					}
 				});
 				run.unsubscribe = unsubscribeChildEvents;
-				const content = `[task from parent]\n\n${prompt}`;
+				const content = run.worktree
+					? `[task from parent]\n\n${prompt}\n\n${isolatedWorktreeTaskNote(run.worktree)}`
+					: `[task from parent]\n\n${prompt}`;
 				const spawnMessage: AgentSessionMessage = {
 					role: "custom",
 					customType: AGENT_MESSAGE_CUSTOM_TYPE,
@@ -10697,7 +11574,16 @@ export class AgentSession {
 						}),
 					);
 				}
-				if (!this.registerRlmChildSession(run.id, child) && !run.detachedDeletion) {
+				if (run.worktree) {
+					// Isolated children are not retained: their cwd disappears with the
+					// worktree, so close the child (kernel included) before capturing. An
+					// admitted explicit delete owns the close instead (see finally).
+					if (!run.detachedDeletion) {
+						await this._closeIsolatedRlmChild(run, childRuntime, subagentOptions, child);
+						const outcome = await settleWorktree(true);
+						if (outcome) await deliverWorktreeNotice(outcome);
+					}
+				} else if (!this.registerRlmChildSession(run.id, child) && !run.detachedDeletion) {
 					if (childRuntime && this._subagentRuntimeHost?.releaseRlmSubagentRuntime) {
 						await this._subagentRuntimeHost
 							.releaseRlmSubagentRuntime(childRuntime, subagentOptions, "error")
@@ -10773,6 +11659,11 @@ export class AgentSession {
 						// A failed best-effort retry remains available through the retained cleanup maps.
 					}
 				}
+				if (run.worktree && !run.detachedDeletion) {
+					// Error/cancel: the child is closed above; retain the patch, never apply it.
+					const outcome = await settleWorktree(false);
+					if (outcome) await deliverWorktreeNotice(outcome);
+				}
 			} finally {
 				if (run.detachedDeletion) {
 					run.deletionRunFinished = true;
@@ -10788,9 +11679,16 @@ export class AgentSession {
 								cleanup,
 							);
 						}
+						// Explicit delete: the runtime is closed by the deletion cleanup; the
+						// worktree goes with it (patch retained, not applied).
+						if (run.worktree) await settleWorktree(false)?.catch(() => undefined);
 						if (cleanupSucceeded) await this._finishRlmRunDeletion(run);
+					} else if (run.worktree) {
+						await settleWorktree(false)?.catch(() => undefined);
 					}
 				} else {
+					// Safety net for paths that did not settle the worktree (no-op once settled).
+					if (run.worktree) await settleWorktree(false)?.catch(() => undefined);
 					if (this._activeRlmChildRuns.get(run.id) === run) {
 						if (this._rlmChildSessions.has(run.id)) {
 							this._activeRlmChildRuns.delete(run.id);
@@ -10819,6 +11717,8 @@ export class AgentSession {
 			name: sessionName,
 			session_dir: childSessionDir,
 			model: `${modelSelection.model.provider}/${modelSelection.model.id}`,
+			// Emitted only for isolated children so the default reply is unchanged.
+			...(worktree ? { worktree: worktree.path } : {}),
 		};
 	}
 
@@ -10826,7 +11726,7 @@ export class AgentSession {
 		prompt: string,
 		kwargs: Record<string, unknown> = {},
 		spawnCode?: string,
-	): Promise<RlmSpawnHandle> {
+	): Promise<RlmSpawnHandle & { worktree?: string }> {
 		return this._startRlmChildRun(prompt, kwargs, spawnCode);
 	}
 
@@ -11410,6 +12310,57 @@ export class AgentSession {
 		};
 	}
 
+	/** `/kernel` status: effective cap, its source, and the running user cell if any. */
+	getKernelCellTimeoutStatus(): KernelCellTimeoutStatus {
+		const activeCell = this._ipythonKernelProvisioner?.manager?.getActiveCellInfo?.();
+		return {
+			...this._resolveKernelCellTimeout(),
+			...(activeCell ? { activeCell } : {}),
+		};
+	}
+
+	/**
+	 * `/kernel timeout <ms> [--global]`: set this chat's per-cell cap immediately
+	 * (0 = off). Persisted in the session log like `/rlm-max-depth`, applied to the
+	 * cell running right now when its cap has not fired yet, and to every later cell.
+	 */
+	async setKernelCellTimeoutMs(
+		timeoutMs: number,
+		options: { global?: boolean } = {},
+	): Promise<SetKernelCellTimeoutResult> {
+		if (!isNonNegativeInteger(timeoutMs)) {
+			throw new Error("Kernel cell timeout must be a non-negative integer number of milliseconds (0 disables).");
+		}
+
+		this.sessionManager.appendCustomEntryWithRollback(KERNEL_CELL_TIMEOUT_STATE_CUSTOM_TYPE, { timeoutMs });
+		this._kernelCellTimeoutOverrideMs = timeoutMs;
+
+		const manager = this._ipythonKernelProvisioner?.manager;
+		const runningCell = manager?.getActiveCellInfo?.();
+		const appliedToRunningCell = runningCell ? (manager?.setActiveCellTimeout?.(timeoutMs) ?? false) : false;
+
+		let globalError: string | undefined;
+		if (options.global) {
+			await this.settingsManager.flush();
+			const staleErrors = this.settingsManager.drainErrors("global");
+			for (const { error } of staleErrors) {
+				console.warn(`Warning: Earlier global settings write failed: ${error.message}`);
+			}
+			this.settingsManager.setKernelCellTimeoutMs(timeoutMs);
+			await this.settingsManager.flush();
+			const errors = this.settingsManager.drainErrors("global");
+			globalError = errors.map(({ error }) => error.message).join("; ") || undefined;
+		}
+
+		return {
+			...this.getKernelCellTimeoutStatus(),
+			appliedToRunningCell,
+			runningCellTooLate: runningCell !== undefined && !appliedToRunningCell,
+			globalSaved: options.global === true && globalError === undefined,
+			...(globalError ? { globalError } : {}),
+		};
+	}
+
 	setSessionName(name: string): void {
 		this.sessionManager.appendSessionInfo(name);
 		this._emit({
@@ -11661,6 +12612,7 @@ export class AgentSession {
 			this._restoreLateIpythonSentAgentMessages();
 			this._reloadGoalStateFromBranch();
 			this._reloadRlmMaxDepthFromBranch();
+			this._reloadKernelCellTimeoutFromBranch();
 			this._invalidateQueuedPromptPreparation();
 
 			await this._extensionRunner.emit({

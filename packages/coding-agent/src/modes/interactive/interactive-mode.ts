@@ -82,6 +82,12 @@ import {
 	DEFAULT_HEARTBEAT_DELIVERY_MODE,
 	parseHeartbeatCommand,
 } from "../../core/cron-jobs.js";
+import {
+	type EditCheckpointBranchEntry,
+	type EditCheckpointListItem,
+	formatEditCheckpointLabel,
+	listEditCheckpoints,
+} from "../../core/edit-checkpoints.js";
 import type {
 	AutocompleteProviderFactory,
 	ContextUsage,
@@ -96,6 +102,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.js";
 import { emptyGoalState, formatGoalUsage, GOAL_CONTEXT_PREVIEW_LABEL, type GoalState } from "../../core/goals.js";
 import type { KernelSentAgentMessage } from "../../core/kernel/index.js";
+import { formatKernelTimeout, parseKernelTimeoutArg } from "../../core/kernel-cell-timeout.js";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.js";
 import { runMcpManagementCommand } from "../../core/mcp/mcp-command.js";
 import {
@@ -125,6 +132,7 @@ import {
 	BUILTIN_SLASH_COMMANDS,
 	builtinSlashCommandTakesArgument,
 	isBuiltinSlashCommandName,
+	parseRewindCommandOptions,
 	parseSlashCommand,
 	resolveBuiltinSlashCommandName,
 } from "../../core/slash-commands.js";
@@ -890,6 +898,26 @@ export interface InteractiveModeOptions {
 export interface InteractiveModeRunResult {
 	type: "agents_view" | "scoped_agents_view";
 	source: Pick<AgentConnectionState, "activeSessionId" | "sessionFile" | "sessionId" | "sessionName" | "cwd">;
+}
+
+/** The frozen loop's fixed sentinel (`packages/agent/src/agent-loop.ts:28`); carries no user-facing reason. */
+const LOOP_ABORT_SENTINEL = "Request was aborted";
+
+/**
+ * Single abort label for live and replayed aborted turns (D2 "unify the abort label").
+ * A retry chain wins, then a specific abort reason, then the generic label.
+ */
+export function formatAbortedTurnLabel(
+	message: Pick<AssistantMessage, "errorMessage">,
+	retryAttempt: number,
+	elapsedSuffix = "",
+): string {
+	if (retryAttempt > 0) {
+		return `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}${elapsedSuffix}`;
+	}
+	const reason = message.errorMessage?.trim();
+	const label = reason && reason !== LOOP_ABORT_SENTINEL ? reason : "Operation aborted";
+	return `${label}${elapsedSuffix}`;
 }
 
 export function formatAgentDepthLabel(depth: number | undefined, hasChildren: boolean): string | undefined {
@@ -4781,6 +4809,11 @@ export class InteractiveMode {
 					await this.handleRlmMaxDepthCommand(commandArgs);
 					return;
 				}
+				if (commandName === "kernel") {
+					this.editor.setText("");
+					await this.handleKernelCommand(commandArgs);
+					return;
+				}
 				if (commandName === "session" && !commandArgs) {
 					this.echoLocalCommand(text);
 					await this.handleSessionCommand();
@@ -4836,6 +4869,28 @@ export class InteractiveMode {
 					this.editor.setText("");
 					await this.showUserMessageSelector();
 					return;
+				}
+				if (commandName === "rewind") {
+					// Bare /rewind opens the checkpoint picker; `--with-conversation` needs the
+					// client to re-render the transcript after the session moved the leaf, so
+					// it runs through promptAndWait here. Everything else is a plain session
+					// command (queued between turns like /compact).
+					if (!commandArgs) {
+						this.editor.setText("");
+						await this.showEditCheckpointSelector();
+						return;
+					}
+					let rewindOptions: ReturnType<typeof parseRewindCommandOptions> | undefined;
+					try {
+						rewindOptions = parseRewindCommandOptions(commandArgs);
+					} catch {
+						rewindOptions = undefined; // let the session report the usage error
+					}
+					if (rewindOptions?.kind === "rewind" && rewindOptions.withConversation) {
+						this.editor.setText("");
+						await this.runRewindWithConversation(commandArgs, rewindOptions.target);
+						return;
+					}
 				}
 				if (commandName === "clone" && !commandArgs) {
 					this.editor.setText("");
@@ -5579,15 +5634,11 @@ export class InteractiveMode {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
-						const retryAttempt = this.getRetryAttempt();
 						const elapsedSuffix =
 							this.workingStartedAt === undefined
 								? ""
 								: ` · ${this.formatWorkingElapsed(Date.now() - this.workingStartedAt)}`;
-						errorMessage =
-							retryAttempt > 0
-								? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}${elapsedSuffix}`
-								: `Operation aborted${elapsedSuffix}`;
+						errorMessage = formatAbortedTurnLabel(this.streamingMessage, this.getRetryAttempt(), elapsedSuffix);
 						this.streamingMessage.errorMessage = errorMessage;
 					}
 					this.ensureAssistantStreamingComponent(event.message).updateContent(this.streamingMessage, false);
@@ -6601,18 +6652,10 @@ export class InteractiveMode {
 						this.registerIpythonToolComponent(content.name, content.id, component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
-							let errorMessage: string;
-							if (message.stopReason === "aborted") {
-								const retryAttempt = this.getRetryAttempt();
-								errorMessage =
-									retryAttempt > 0
-										? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-										: message.errorMessage && message.errorMessage !== "Request was aborted"
-											? message.errorMessage
-											: "Operation aborted";
-							} else {
-								errorMessage = message.errorMessage || "Error";
-							}
+							const errorMessage =
+								message.stopReason === "aborted"
+									? formatAbortedTurnLabel(message, this.getRetryAttempt())
+									: message.errorMessage || "Error";
 							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
 						} else {
 							renderedPendingTools.set(content.id, component);
@@ -6787,8 +6830,9 @@ export class InteractiveMode {
 			void this.agentConnection.abortBash();
 		}
 		if (this.isAgentStreaming()) {
-			// The queue is preserved server-side; draining resumes on the next
-			// submit or queued-message edit.
+			// The queue is preserved server-side and drains automatically once the
+			// abort settles (D2); EVOPI_STEER_AUTO_RESUME=off keeps the manual resume
+			// on the next submit or queued-message edit.
 			void this.agentConnection.abort().catch((error) => {
 				this.showError(error instanceof Error ? error.message : String(error));
 			});
@@ -8364,6 +8408,108 @@ export class InteractiveMode {
 		});
 	}
 
+	/** Entries on the path root → current leaf, in order (the session's `getBranch()` as seen through the connection). */
+	private async collectEditCheckpointBranch(): Promise<EditCheckpointBranchEntry[]> {
+		const { tree, leafId } = await this.agentConnection.getSessionTree();
+		const byId = new Map<string, AgentConnectionSessionTreeNode>();
+		const stack = [...tree];
+		while (stack.length > 0) {
+			const node = stack.pop()!;
+			byId.set(node.entry.id, node);
+			stack.push(...node.children);
+		}
+		const branch: EditCheckpointBranchEntry[] = [];
+		let current = leafId ? byId.get(leafId) : undefined;
+		while (current) {
+			branch.push(current.entry as EditCheckpointBranchEntry);
+			const parentId = current.entry.parentId;
+			current = parentId ? byId.get(parentId) : undefined;
+		}
+		branch.reverse();
+		return branch;
+	}
+
+	/** Checkpoints known to the transcript (the on-disk index is session-side; orphans show up in `/rewind list`). */
+	private async listEditCheckpointsFromConnection(): Promise<EditCheckpointListItem[]> {
+		return listEditCheckpoints(await this.collectEditCheckpointBranch(), undefined);
+	}
+
+	private async showEditCheckpointSelector(): Promise<void> {
+		let items: EditCheckpointListItem[];
+		try {
+			items = await this.listEditCheckpointsFromConnection();
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (items.length === 0) {
+			this.showStatus("No edit checkpoints in this session yet");
+			return;
+		}
+		const labels = items.map((item) => formatEditCheckpointLabel(item));
+		const choice = await this.showExtensionSelector(
+			"Rewind: pick a checkpoint (files return to their state before it)",
+			labels,
+		);
+		if (choice === undefined) return;
+		const item = items[labels.indexOf(choice)];
+		if (!item) return;
+		const modes = item.turn ? ["Files only", "Files + conversation"] : ["Files only"];
+		const mode = await this.showExtensionSelector(`Rewind ${formatEditCheckpointLabel(item)}`, modes);
+		if (mode === undefined) return;
+		if (mode === "Files + conversation") {
+			await this.runRewindWithConversation(`${item.seq} --with-conversation`, item.seq);
+			return;
+		}
+		try {
+			await this.agentConnection.prompt(`/rewind ${item.seq}`, { streamingBehavior: "followUp", queueIfBusy: true });
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	/**
+	 * `/rewind <target> --with-conversation`: the session restores the files and
+	 * moves the leaf to before that turn's user message; this client then
+	 * re-renders and puts the message text back in the editor (like /tree).
+	 */
+	private async runRewindWithConversation(args: string, target: string): Promise<void> {
+		if (this.isAgentStreaming() || this.isAgentCompacting() || this.isBashRunning()) {
+			this.editor.setText(`/rewind ${args}`);
+			this.showWarning("Wait for the current work to finish (or abort it) before rewinding the conversation.");
+			return;
+		}
+		let editorText = "";
+		try {
+			const items = await this.listEditCheckpointsFromConnection();
+			const item = /^\d+$/.test(target) ? items[Number(target) - 1] : items.find((entry) => entry.seq === target);
+			if (item?.turn) {
+				const branch = await this.collectEditCheckpointBranch();
+				const userEntry = branch.find((entry) => entry.id === item.turn?.entryId);
+				const content = userEntry?.message?.content;
+				editorText =
+					typeof content === "string"
+						? content
+						: Array.isArray(content)
+							? content
+									.filter((part): part is { type: "text"; text: string } => part?.type === "text")
+									.map((part) => part.text)
+									.join("")
+							: "";
+			}
+		} catch {
+			editorText = "";
+		}
+		try {
+			await this.agentConnection.promptAndWait(`/rewind ${args}`);
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		await this.renderCurrentSessionState();
+		if (editorText && !this.editor.getText().trim()) this.editor.setText(editorText);
+	}
+
 	private async handleCloneCommand(): Promise<void> {
 		try {
 			const { leafId } = await this.agentConnection.getSessionTree();
@@ -9256,6 +9402,80 @@ export class InteractiveMode {
 			if (result.globalError) {
 				this.showError(
 					`RLM max depth set for this chat, but the global default was not saved: ${result.globalError}`,
+				);
+			}
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private addDimLine(text: string): void {
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(theme.fg("dim", text), 1, 0));
+		this.ui.requestRender();
+	}
+
+	/**
+	 * `/kernel` — status; `/kernel timeout <ms|Ns|Nm|Nh|off> [--global]` — set the
+	 * per-cell cap immediately through the connection API (never enters the transcript).
+	 */
+	private async handleKernelCommand(args: string): Promise<void> {
+		const usage = "Usage: /kernel [timeout <ms|Ns|Nm|Nh|off> [--global]]";
+		const tokens = args ? args.split(/\s+/) : [];
+		const subcommand = tokens[0];
+		if (subcommand !== undefined && subcommand !== "timeout") {
+			this.showWarning(usage);
+			return;
+		}
+		if (tokens.length <= 1) {
+			try {
+				const status = await this.agentConnection.getKernelCellTimeoutStatus();
+				const cell = status.activeCell;
+				const running = cell
+					? `; running cell: ${formatKernelTimeout(cell.elapsedMs)} elapsed${
+							cell.timeoutMs > 0 ? ` of ${formatKernelTimeout(cell.timeoutMs)}` : ""
+						}${cell.timedOut ? ", cap fired" : ""}`
+					: "";
+				this.addDimLine(
+					`Kernel cell timeout: ${formatKernelTimeout(status.timeoutMs)} (${status.source})${running}`,
+				);
+				if (status.envTimeoutMs !== undefined && status.source !== "env") {
+					this.showWarning(
+						`EVOPI_KERNEL_CELL_TIMEOUT_MS=${formatKernelTimeout(status.envTimeoutMs)} is set and shadows saved settings in new sessions`,
+					);
+				}
+			} catch (error) {
+				this.showError(error instanceof Error ? error.message : String(error));
+			}
+			return;
+		}
+
+		const global = tokens[2] === "--global";
+		const timeoutMs = parseKernelTimeoutArg(tokens[1] ?? "");
+		if (tokens.length > (global ? 3 : 2) || timeoutMs === undefined) {
+			this.showWarning(usage);
+			return;
+		}
+
+		try {
+			const result = await this.agentConnection.setKernelCellTimeoutMs(timeoutMs, { global });
+			const runningNote = result.appliedToRunningCell
+				? " (applied to the running cell)"
+				: result.runningCellTooLate
+					? " (too late for the running cell — its cap already fired; applies to the next cell)"
+					: "";
+			this.addDimLine(
+				`Kernel cell timeout set: ${formatKernelTimeout(result.timeoutMs)}${runningNote}${
+					result.globalSaved ? " and saved as global default" : ""
+				}`,
+			);
+			if (result.globalError) {
+				this.showError(
+					`Kernel cell timeout set for this chat, but the global default was not saved: ${result.globalError}`,
+				);
+			} else if (result.globalSaved && result.envTimeoutMs !== undefined) {
+				this.showWarning(
+					`EVOPI_KERNEL_CELL_TIMEOUT_MS=${formatKernelTimeout(result.envTimeoutMs)} is set and will shadow the saved default in new sessions`,
 				);
 			}
 		} catch (error) {

@@ -70,8 +70,9 @@ export const DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION = 7;
 // Revision 23 lets workers query the supervisor agent roster on demand.
 // Revision 24 adds the capability-gated agent-roster subscription and push.
 // Revision 25 adds capability-gated direct worker peer transport discovery.
-export const DAEMON_SCHEMA_REVISION = 25;
-export const DAEMON_SCHEMA_ID = "protocol-7-schema-25-585ef1102921";
+// Revision 26 adds the immediate /kernel timeout commands (get/set kernel cell timeout).
+export const DAEMON_SCHEMA_REVISION = 26;
+export const DAEMON_SCHEMA_ID = "protocol-7-schema-26-d9d9cac738a2";
 
 export type DaemonProtocolName = typeof DAEMON_PROTOCOL_NAME;
 export type DaemonProtocolVersion = number;
@@ -657,6 +658,8 @@ export type DaemonCommand =
 	| { id?: string; type: "set_session_name"; activeSessionId: string; name: string; workerToken?: string }
 	| { id?: string; type: "get_rlm_max_depth_status"; activeSessionId: string }
 	| { id?: string; type: "set_rlm_max_depth"; activeSessionId: string; maxDepth: number; global?: boolean }
+	| { id?: string; type: "get_kernel_cell_timeout_status"; activeSessionId: string }
+	| { id?: string; type: "set_kernel_cell_timeout"; activeSessionId: string; timeoutMs: number; global?: boolean }
 	| { id?: string; type: "rename_saved_session"; activeSessionId?: string; sessionPath: string; name: string }
 	| { id?: string; type: "delete_saved_session"; activeSessionId?: string; sessionPath: string }
 	| { id?: string; type: "get_session_context"; activeSessionId: string }
@@ -690,6 +693,7 @@ export interface DaemonCommandCompatibility {
 const LEGACY_DAEMON_COMMAND = { minProtocol: 7 } as const;
 const CURRENT_DAEMON_COMMAND = { minProtocol: 7 } as const;
 const RLM_MAX_DEPTH_COMMAND = { minProtocol: 7, minSchemaRevision: 11 } as const;
+const KERNEL_CELL_TIMEOUT_COMMAND = { minProtocol: 7, minSchemaRevision: 26 } as const;
 const SESSION_INPUT_ADMISSION_COMMAND = {
 	minProtocol: 7,
 	capability: "session_input_admission",
@@ -834,6 +838,8 @@ export const DAEMON_COMMAND_COMPATIBILITY = {
 	set_session_name: LEGACY_DAEMON_COMMAND,
 	get_rlm_max_depth_status: RLM_MAX_DEPTH_COMMAND,
 	set_rlm_max_depth: RLM_MAX_DEPTH_COMMAND,
+	get_kernel_cell_timeout_status: KERNEL_CELL_TIMEOUT_COMMAND,
+	set_kernel_cell_timeout: KERNEL_CELL_TIMEOUT_COMMAND,
 	rename_saved_session: LEGACY_DAEMON_COMMAND,
 	delete_saved_session: LEGACY_DAEMON_COMMAND,
 	get_session_context: LEGACY_DAEMON_COMMAND,
@@ -952,6 +958,8 @@ export const DAEMON_COMMAND_PLANE = {
 	set_session_name: "control",
 	get_rlm_max_depth_status: "session",
 	set_rlm_max_depth: "session",
+	get_kernel_cell_timeout_status: "session",
+	set_kernel_cell_timeout: "session",
 	rename_saved_session: "control",
 	delete_saved_session: "control",
 	get_session_context: "session",
@@ -1307,6 +1315,7 @@ const READ_ONLY_DAEMON_COMMANDS: ReadonlySet<DaemonCommand["type"]> = new Set([
 	"get_last_assistant_text",
 	"get_system_prompt",
 	"get_rlm_max_depth_status",
+	"get_kernel_cell_timeout_status",
 	"get_tool_definition",
 ]);
 

@@ -6,8 +6,10 @@ import {
 	isBuiltinSlashCommandName,
 	isSessionSlashCommandName,
 	parseRefineCommandOptions,
+	parseRewindCommandOptions,
 	parseSessionSlashCommand,
 	parseSlashCommand,
+	parseWorktreeCommandOptions,
 	resolveBuiltinSlashCommandName,
 	resolveSlashCommand,
 	SESSION_SLASH_COMMAND_NAMES,
@@ -202,6 +204,68 @@ describe("session slash commands", () => {
 		).toEqual([...SESSION_SLASH_COMMAND_NAMES]);
 		for (const name of SESSION_SLASH_COMMAND_NAMES) expect(isSessionSlashCommandName(name)).toBe(true);
 		expect(isSessionSlashCommandName("settings")).toBe(false);
+	});
+
+	test("exposes /rewind as a session command with checkpoint targets and flags", () => {
+		expect(BUILTIN_SLASH_COMMANDS.find((command) => command.name === "rewind")).toMatchObject({
+			execution: "session",
+			argumentHint: "[list|<N|seq>] [--with-conversation] [--force] [--restart-kernel]",
+			takesArgument: true,
+		});
+		expect(parseSessionSlashCommand("/rewind 3 --force")).toEqual({
+			name: "rewind",
+			args: "3 --force",
+			text: "/rewind 3 --force",
+		});
+		expect(parseSessionSlashCommand("/rewind")).toEqual({ name: "rewind", args: "", text: "/rewind" });
+	});
+
+	test("parses /rewind options", () => {
+		expect(parseRewindCommandOptions("")).toEqual({ kind: "list" });
+		expect(parseRewindCommandOptions("list")).toEqual({ kind: "list" });
+		expect(parseRewindCommandOptions("3")).toEqual({
+			kind: "rewind",
+			target: "3",
+			force: false,
+			withConversation: false,
+			restartKernel: false,
+		});
+		expect(parseRewindCommandOptions("--force\t00000000000000000001-abcdef01 --with-conversation")).toEqual({
+			kind: "rewind",
+			target: "00000000000000000001-abcdef01",
+			force: true,
+			withConversation: true,
+			restartKernel: false,
+		});
+		expect(parseRewindCommandOptions("2 --restart-kernel -f")).toMatchObject({ force: true, restartKernel: true });
+		expect(() => parseRewindCommandOptions("--bogus 1")).toThrow(/Unknown option --bogus/);
+		expect(() => parseRewindCommandOptions("1 2")).toThrow(/Unexpected argument 2/);
+		expect(() => parseRewindCommandOptions("list --force")).toThrow(/Usage: \/rewind/);
+	});
+
+	test("exposes /worktree as a session command for listing and pruning isolated subagent worktrees", () => {
+		expect(BUILTIN_SLASH_COMMANDS.find((command) => command.name === "worktree")).toMatchObject({
+			execution: "session",
+			argumentHint: "[list|prune [--all] [--dry-run]]",
+			takesArgument: true,
+		});
+		expect(parseSessionSlashCommand("/worktree prune --all")).toEqual({
+			name: "worktree",
+			args: "prune --all",
+			text: "/worktree prune --all",
+		});
+		expect(parseSessionSlashCommand("/worktree")).toEqual({ name: "worktree", args: "", text: "/worktree" });
+	});
+
+	test("parses /worktree options", () => {
+		expect(parseWorktreeCommandOptions("")).toEqual({ kind: "list" });
+		expect(parseWorktreeCommandOptions("list")).toEqual({ kind: "list" });
+		expect(parseWorktreeCommandOptions("prune")).toEqual({ kind: "prune", all: false, dryRun: false });
+		expect(parseWorktreeCommandOptions("prune --all")).toEqual({ kind: "prune", all: true, dryRun: false });
+		expect(parseWorktreeCommandOptions("prune\t--dry-run --all")).toEqual({ kind: "prune", all: true, dryRun: true });
+		expect(() => parseWorktreeCommandOptions("list extra")).toThrow(/Unexpected argument extra/);
+		expect(() => parseWorktreeCommandOptions("prune --force")).toThrow(/Unknown option --force/);
+		expect(() => parseWorktreeCommandOptions("clear")).toThrow(/Unknown subcommand clear\. Usage: \/worktree/);
 	});
 
 	test("splits at the first horizontal Unicode whitespace and preserves the raw text", () => {

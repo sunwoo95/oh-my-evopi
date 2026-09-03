@@ -1,8 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import {
+	applyRewind,
+	editCheckpointBlobPath,
+	planRewind,
+	readEditCheckpointIndex,
+	sha256Hex,
+} from "../src/core/edit-checkpoints.js";
 import { ReplKernelManager } from "../src/core/kernel/index.js";
 import { buildRlmBootstrapCode } from "../src/core/tools/ipython.js";
 
@@ -96,6 +103,79 @@ describeIfKernel("RLM bootstrap (real kernel)", () => {
 			await manager.shutdown({ snapshot: true, drainHostRequests: true });
 		}
 	}, 60_000);
+
+	it("captures an edit-skill before-image in the kernel when EVOPI_EDIT_CHECKPOINT_DIR is set (NS-D4)", async () => {
+		const workDir = join(dir, "checkpointed");
+		mkdirSync(workDir, { recursive: true });
+		const target = join(workDir, "file.txt");
+		writeFileSync(target, "old\n");
+		const checkpointDir = join(dir, "artifacts", "edit-checkpoints");
+		const editSkillRoot = join(process.cwd(), "skills", "edit");
+		const manager = new ReplKernelManager({
+			python: python as string,
+			cwd: workDir,
+			env: { PYTHONPATH: join(editSkillRoot, "src"), EVOPI_EDIT_CHECKPOINT_DIR: checkpointDir },
+		});
+		try {
+			await manager.start();
+			const bootstrap = await manager.execute(
+				buildRlmBootstrapCode([
+					{
+						name: "edit",
+						importName: "edit",
+						packagePath: editSkillRoot,
+						pyprojectPath: join(editSkillRoot, "pyproject.toml"),
+					},
+				]),
+			);
+			expect(bootstrap.status).toBe("ok");
+
+			const cell = await manager.execute('await edit(path="file.txt", old_str="old", new_str="new")');
+			expect(cell.status).toBe("ok");
+			expect(cell.diffs?.[0]?.path).toBe(realpathSync(target));
+			expect(readFileSync(target, "utf-8")).toBe("new\n");
+
+			const records = readEditCheckpointIndex(checkpointDir);
+			expect(records).toHaveLength(1);
+			expect(records[0]).toMatchObject({
+				kind: "edit",
+				source: "kernel",
+				path: realpathSync(target),
+				beforeSha256: sha256Hex("old\n"),
+				afterSha256: sha256Hex("new\n"),
+				startLine: 1,
+			});
+			expect(records[0].cellId).toEqual(expect.any(String));
+			expect(readFileSync(editCheckpointBlobPath(checkpointDir, records[0].beforeSha256!), "utf-8")).toBe("old\n");
+
+			// The shell form (`!edit --path ...`) runs the skill CLI in a bash subprocess
+			// with the same env and is captured as "shell". The `edit` console script is
+			// only installed by the venv skill sync, so drive `rlm.skill:cli` directly.
+			const shellCell = [
+				"import sys, shlex",
+				"_py = shlex.quote(sys.executable)",
+				`_code = 'import sys; sys.argv[0] = "edit"; from rlm.skill import cli; cli()'`,
+				`_r = await bash(_py + " -c " + shlex.quote(_code) + " --path file.txt --old-str new --new-str newer")`,
+				"print(_r.output)",
+			].join("\n");
+			const shell = await manager.execute(shellCell);
+			expect(shell.status).toBe("ok");
+			expect(shell.stdout).toContain("Edited ");
+			expect(readFileSync(target, "utf-8")).toBe("newer\n");
+			const afterShell = readEditCheckpointIndex(checkpointDir);
+			expect(afterShell).toHaveLength(2);
+			expect(afterShell[1]).toMatchObject({ source: "shell", cellId: null, beforeSha256: sha256Hex("new\n") });
+
+			// Host-side rewind restores the pre-edit bytes.
+			const result = applyRewind(checkpointDir, planRewind(checkpointDir, afterShell, records[0].seq), {
+				maxFileBytes: 4 * 1024 * 1024,
+			});
+			expect(result.restored).toEqual([realpathSync(target)]);
+			expect(readFileSync(target, "utf-8")).toBe("old\n");
+		} finally {
+			await manager.shutdown({ snapshot: true, drainHostRequests: true });
+		}
+	}, 90_000);
 
 	it("emits canonical paths for edits after the kernel changes directories", async () => {
 		const firstDir = join(dir, "first");

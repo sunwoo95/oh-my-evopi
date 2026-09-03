@@ -52,7 +52,8 @@ export const FEATURE_HINTS: readonly FeatureHintDefinition[] = [
 	},
 	{
 		id: "session-rewind",
-		getText: () => "Run /tree to open the session tree and return to a previous message.",
+		getText: () =>
+			"Run /tree to return to a previous message, or /rewind to restore files edited by the kernel to an earlier checkpoint.",
 	},
 	{
 		id: "steering",

@@ -36,6 +36,8 @@ export interface BuildSystemPromptOptions {
 	rlmDepth?: number;
 	/** Human-readable parent name or id for child communication doctrine. */
 	rlmParentAgent?: string;
+	/** NS-D1: isolated git worktree the child session runs in (child doctrine). */
+	rlmWorktree?: { path: string; repoRoot: string };
 	/** Global harness state to inject as compact persistent context. */
 	harnessState?: HarnessState;
 	/** Optional harness-entry selector (B3/M17: MMR+budget behind the evo gate). */
@@ -112,6 +114,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		const childDoctrine = buildChildAgentDoctrine({
 			depth: options.rlmDepth,
 			parentAgent: options.rlmParentAgent,
+			worktree: options.rlmWorktree,
 			installedSkills: visiblePythonSkillImportNames,
 			activeTools: tools,
 		});

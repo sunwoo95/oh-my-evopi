@@ -28,11 +28,16 @@ describe("deleteSessionFile removes the session artifact directory", () => {
 		writeFileSync(join(artifactDir, "kernel-state.dill"), "payload");
 		writeFileSync(join(artifactDir, "kernel-state.json"), "{}");
 		writeFileSync(join(artifactDir, "scheduled-jobs.json"), '{"jobs":[],"dispatches":[]}\n');
+		// NS-D4 edit checkpoints live in a subtree of the artifact dir and go with it.
+		mkdirSync(join(artifactDir, "edit-checkpoints", "blobs"), { recursive: true });
+		writeFileSync(join(artifactDir, "edit-checkpoints", "index.jsonl"), '{"seq":"s1","path":"/tmp/a"}\n');
+		writeFileSync(join(artifactDir, "edit-checkpoints", "blobs", "abc"), "before-image");
 
 		const result = await deleteSessionFile(sessionPath);
 
 		expect(result.ok).toBe(true);
 		expect(existsSync(artifactDir)).toBe(false);
+		expect(existsSync(join(artifactDir, "edit-checkpoints"))).toBe(false);
 		expect(existsSync(sessionPath)).toBe(false);
 	});
 

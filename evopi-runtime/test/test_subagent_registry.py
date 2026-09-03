@@ -93,6 +93,51 @@ class RlmSubagentRegistryTest(unittest.TestCase):
         self.assertEqual(result.rlm_child_id, "sub-a1b2c3d4")
         self.assertEqual(result.name, "api-reviewer")
         self.assertEqual(result.model, "deepseek/deepseek-v4-flash")
+        self.assertIsNone(result.worktree)
+
+    def test_forwards_isolated_kwarg_only_when_passed(self) -> None:
+        handle_payload = {
+            "rlm_child_id": "sub-a1b2c3d4",
+            "name": "worker",
+            "session_dir": "/tmp/parent/sub-a1b2c3d4",
+            "model": "deepseek/deepseek-v4-flash",
+        }
+
+        # Default: no isolated key in the payload (byte-identical to the pre-isolation request).
+        host_request = AsyncMock(return_value=dict(handle_payload))
+        with patch.object(rlm_module, "host_request", host_request):
+            result = asyncio.run(rlm_module.rlm("task", name="worker"))
+        host_request.assert_awaited_once_with(
+            "rlm.run", {"prompt": "task", "kwargs": {"name": "worker"}}
+        )
+        self.assertIsNone(result.worktree)
+
+        # Explicit True/False are forwarded verbatim through every entry point.
+        for entry in (rlm_module.rlm, rlm_module.rlm.run, rlm_module.run):
+            for value in (True, False):
+                host_request = AsyncMock(return_value=dict(handle_payload))
+                with patch.object(rlm_module, "host_request", host_request):
+                    asyncio.run(entry("task", isolated=value, model="deepseek/deepseek-v4-flash"))
+                host_request.assert_awaited_once_with(
+                    "rlm.run",
+                    {
+                        "prompt": "task",
+                        "kwargs": {"model": "deepseek/deepseek-v4-flash", "isolated": value},
+                    },
+                )
+
+        # The host reports the worktree path on the handle when the child is isolated.
+        host_request = AsyncMock(return_value={**handle_payload, "worktree": "/tmp/wt/abc/sub-a1b2c3d4"})
+        with patch.object(rlm_module, "host_request", host_request):
+            result = asyncio.run(rlm_module.rlm("task", isolated=True))
+        self.assertEqual(result.worktree, Path("/tmp/wt/abc/sub-a1b2c3d4"))
+
+        # Non-bool values are rejected before any host round trip.
+        host_request = AsyncMock(return_value=dict(handle_payload))
+        with patch.object(rlm_module, "host_request", host_request):
+            with self.assertRaisesRegex(TypeError, "isolated must be bool or None"):
+                asyncio.run(rlm_module.rlm("task", isolated="yes"))
+        host_request.assert_not_awaited()
 
     def test_finds_authenticated_models_through_host(self) -> None:
         host_request = AsyncMock(

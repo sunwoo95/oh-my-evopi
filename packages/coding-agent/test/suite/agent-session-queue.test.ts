@@ -3154,8 +3154,11 @@ describe("AgentSession scheduler scenarios", () => {
 			{ deliverAs: "followUp" },
 		);
 
-		// Phase 2: queued work stays in session queues, not Agent queues.
-		expect(harness.session.agent.hasQueuedMessages()).toBe(false);
+		// Phase 2: the session still owns every queued item; mid-run steering is additionally
+		// mirrored into Agent.steer() so the loop injects it without restarting the run (D2),
+		// while follow-ups and commands never touch the Agent queues.
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
+		expect(harness.session.getSteeringMessages()).toEqual(["s1", "steer custom", "extension steer"]);
 		const pendingAfterQueueing = harness.session.queuedActionCount;
 		expect(pendingAfterQueueing).toBeGreaterThan(0);
 		expect(harness.session.getFollowUpMessages()).toContain("f1");
@@ -3241,11 +3244,13 @@ describe("AgentSession scheduler scenarios", () => {
 		expect(harness.session.getFollowUpMessages()).toEqual(["same heartbeat", "same heartbeat"]);
 		await harness.session.followUp("keep me", undefined, { queueKey: "hb:keep" });
 
-		// Phase 2: steering never coalesces.
+		// Phase 2: steering never coalesces. Mid-run steering rides the active run via
+		// Agent.steer() (D2), so it must not request a steering stop.
 		await harness.session.steer("first", undefined, { queueKey: "same-steer" });
 		await harness.session.steer("second", undefined, { queueKey: "same-steer" });
 		expect(harness.session.getSteeringMessages()).toEqual(["first", "second"]);
-		expect(internals._steeringStopPending).toBe(true);
+		expect(internals._steeringStopPending).toBe(false);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 		const agentPrompt = agentPromptText("agentmsg_s2_clear", "clear me");
 		const delivery = harness.session.waitForAgentMessagePromptDelivery("agentmsg_s2_clear");
 		await harness.session.queueAgentMessagePrompt(agentPrompt, "steer");
@@ -3283,12 +3288,14 @@ describe("AgentSession scheduler scenarios", () => {
 		});
 		await expect(delivery).rejects.toThrow("cleared before delivery");
 
-		// Phase 5: steering-stop reconciliation.
+		// Phase 5: steering reconciliation — removing steered items also empties the mirrored Agent queue.
 		expect(harness.session.getSteeringMessages()).toEqual(["first", "second"]);
-		expect(internals._steeringStopPending).toBe(true);
+		expect(internals._steeringStopPending).toBe(false);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 		expect(harness.session.removeQueuedFollowUp("same-steer")).toBe(true);
 		expect(harness.session.getSteeringMessages()).toEqual([]);
 		expect(internals._steeringStopPending).toBe(false);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(false);
 		expect(harness.session.removeQueuedFollowUp("hb:two")).toBe(true);
 		expect(harness.session.getFollowUpMessages()).toEqual(["keep me", spoofedPlain]);
 		expect(harness.session.clearQueuedUserMessagesMatching((text) => text === spoofedPlain)).toEqual({

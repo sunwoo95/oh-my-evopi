@@ -8,10 +8,13 @@ import { reapKernelOrphanProcesses, recordOrphanProcessState } from "../orphan-p
 import { ensureKernelPython } from "./bootstrap.js";
 import { buildKernelEnv, describeWithheldKernelEnv, type KernelEnvPolicy } from "./kernel-env.js";
 import {
+	type ActiveCellInfo,
 	AGENT_MESSAGE_DISPLAY_MIME,
 	ATTACHMENT_DISPLAY_MIME,
+	type CellTimeoutWarning,
 	createDeferred,
 	createKernelStartupAbortError,
+	DEFAULT_CELL_TIMEOUT_WARNING_RATIO,
 	DEFAULT_MAX_OUTPUT_CHARS,
 	DEFAULT_SNAPSHOT_DEBOUNCE_MS,
 	DIFF_DISPLAY_MIME,
@@ -91,6 +94,26 @@ interface ActiveExecution {
 	reject: (error: Error) => void;
 }
 
+/**
+ * Wall-clock cap of the request that currently holds the queue slot. User cells
+ * (`internal === false`) can be re-armed mid-flight via setActiveCellTimeout and
+ * fire a one-shot warning at {@link DEFAULT_CELL_TIMEOUT_WARNING_RATIO}; host
+ * ops (snapshot/restore/repair) keep their fixed caps.
+ */
+interface CellDeadline {
+	/** When the cap started counting (after the busy-reuse wait). */
+	armedAt: number;
+	/** Cap in effect; 0 = no cap (disarmed). */
+	timeoutMs: number;
+	controller: AbortController;
+	timer?: ReturnType<typeof globalThis.setTimeout>;
+	warningTimer?: ReturnType<typeof globalThis.setTimeout>;
+	timedOut: boolean;
+	warned: boolean;
+	internal: boolean;
+	onWarning?: (info: CellTimeoutWarning) => void;
+}
+
 // Complete event vocabulary of protocol version 2 (see evopi-runtime/src/rlm/repl.md).
 // The version handshake is exact, so an unknown kind is corruption, not a newer runtime.
 const PROTOCOL_EVENT_KINDS = new Set([
@@ -167,6 +190,8 @@ export class ReplKernelManager {
 	/** Serializes execute() calls — the runtime runs one request at a time. */
 	private executionQueue: Promise<unknown> = Promise.resolve();
 	private activeExecution?: ActiveExecution;
+	/** Wall-clock cap of the request holding the queue slot (A4); re-armable for user cells. */
+	private activeDeadline?: CellDeadline;
 	private readonly activeExecutionIdleWaiters = new Set<() => void>();
 	private readonly lateSentAgentMessageHandlers = new Map<string, (message: KernelSentAgentMessage) => void>();
 	/** Resolvers for done events outside the active execution (the shutdown reply). */
@@ -814,7 +839,7 @@ export class ReplKernelManager {
 		await prev;
 
 		const started = Date.now();
-		let executionTimeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+		let deadline: CellDeadline | undefined;
 		try {
 			await this.waitForActiveExecutionToClearForReuse(opts.signal);
 			if (opts.signal?.aborted) {
@@ -830,27 +855,112 @@ export class ReplKernelManager {
 				await this.waitForProtocolRepair(opts.signal);
 				return this.enqueueRequest(requestFields, code, opts, executionTimeoutMs);
 			}
-			if (executionTimeoutMs === undefined) {
+			// Host ops without a cap run untouched. User cells always get a deadline
+			// slot — disarmed when there is no cap — so /kernel timeout can cap or
+			// extend the cell that is running right now.
+			if (executionTimeoutMs === undefined && opts.internal) {
 				return await this.executeInner(requestFields, code, opts, started);
 			}
 
-			const controller = new AbortController();
-			let timedOut = false;
-			executionTimeout = globalThis.setTimeout(() => {
-				timedOut = true;
-				controller.abort();
-			}, executionTimeoutMs);
-			executionTimeout.unref?.();
-			const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+			deadline = {
+				armedAt: Date.now(),
+				timeoutMs: executionTimeoutMs ?? 0,
+				controller: new AbortController(),
+				timedOut: false,
+				warned: false,
+				internal: opts.internal === true,
+				onWarning: opts.internal ? undefined : opts.onTimeoutWarning,
+			};
+			this.activeDeadline = deadline;
+			this.armDeadline(deadline);
+			const signal = opts.signal
+				? AbortSignal.any([opts.signal, deadline.controller.signal])
+				: deadline.controller.signal;
 			const result = await this.executeInner(requestFields, code, { ...opts, signal }, started);
-			if (timedOut && !opts.signal?.aborted && !opts.internal) {
-				return this.settleTimedOutCell(result, executionTimeoutMs);
+			if (deadline.timedOut && !opts.signal?.aborted && !opts.internal) {
+				return this.settleTimedOutCell(result, deadline.timeoutMs);
 			}
 			return result;
 		} finally {
-			if (executionTimeout) globalThis.clearTimeout(executionTimeout);
+			if (deadline) {
+				this.clearDeadlineTimers(deadline);
+				if (this.activeDeadline === deadline) this.activeDeadline = undefined;
+			}
 			resolveNext();
 		}
+	}
+
+	/** (Re)start the cap and warning timers of a deadline from its current `armedAt`/`timeoutMs`. */
+	private armDeadline(deadline: CellDeadline): void {
+		this.clearDeadlineTimers(deadline);
+		if (deadline.timeoutMs <= 0 || deadline.timedOut) return;
+		const elapsed = Date.now() - deadline.armedAt;
+		deadline.timer = globalThis.setTimeout(
+			() => {
+				deadline.timedOut = true;
+				deadline.controller.abort();
+			},
+			Math.max(0, deadline.timeoutMs - elapsed),
+		);
+		deadline.timer.unref?.();
+		if (deadline.internal || deadline.warned || !deadline.onWarning) return;
+		const warnAt = Math.floor(deadline.timeoutMs * DEFAULT_CELL_TIMEOUT_WARNING_RATIO);
+		deadline.warningTimer = globalThis.setTimeout(
+			() => {
+				deadline.warningTimer = undefined;
+				if (deadline.warned || deadline.timedOut) return;
+				deadline.warned = true;
+				const elapsedMs = Date.now() - deadline.armedAt;
+				try {
+					deadline.onWarning?.({
+						elapsedMs,
+						timeoutMs: deadline.timeoutMs,
+						remainingMs: Math.max(0, deadline.timeoutMs - elapsedMs),
+					});
+				} catch {
+					// Fires from a timer: nothing upstream can catch this.
+				}
+			},
+			Math.max(0, warnAt - elapsed),
+		);
+		deadline.warningTimer.unref?.();
+	}
+
+	private clearDeadlineTimers(deadline: CellDeadline): void {
+		if (deadline.timer) globalThis.clearTimeout(deadline.timer);
+		if (deadline.warningTimer) globalThis.clearTimeout(deadline.warningTimer);
+		deadline.timer = undefined;
+		deadline.warningTimer = undefined;
+	}
+
+	/**
+	 * Re-arm the running user cell's cap (A4, `/kernel timeout`). `timeoutMs <= 0`
+	 * removes the cap for this cell. Returns false when no user cell is running or
+	 * its cap already fired (the abort is irreversible), so the caller can say the
+	 * new value only applies to the next cell. A cap whose 80% point is still
+	 * ahead re-enables the one-shot warning.
+	 */
+	setActiveCellTimeout(timeoutMs: number): boolean {
+		const deadline = this.activeDeadline;
+		if (!deadline || deadline.internal || deadline.timedOut || deadline.controller.signal.aborted) return false;
+		deadline.timeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 0;
+		if (deadline.timeoutMs > 0) {
+			const elapsed = Date.now() - deadline.armedAt;
+			if (deadline.timeoutMs * DEFAULT_CELL_TIMEOUT_WARNING_RATIO > elapsed) deadline.warned = false;
+		}
+		this.armDeadline(deadline);
+		return true;
+	}
+
+	/** The user cell currently executing (never a host op), for `/kernel` status. */
+	getActiveCellInfo(): ActiveCellInfo | undefined {
+		const deadline = this.activeDeadline;
+		if (!deadline || deadline.internal) return undefined;
+		return {
+			elapsedMs: Date.now() - deadline.armedAt,
+			timeoutMs: deadline.timeoutMs,
+			timedOut: deadline.timedOut,
+		};
 	}
 
 	/**
@@ -870,6 +980,7 @@ export class ReplKernelManager {
 			status: "error",
 			error: { ename: "KernelCellTimeout", evalue: `cell exceeded ${timeoutMs} ms`, traceback: [] },
 			stderr: result.stderr ? `${result.stderr}\n${note}` : note,
+			timedOut: { timeoutMs, kernelRestarted: stillRunning },
 		};
 	}
 

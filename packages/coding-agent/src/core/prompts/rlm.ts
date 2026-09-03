@@ -56,6 +56,8 @@ export interface ChildAgentDoctrineOptions {
 	parentAgent?: string;
 	installedSkills?: string[];
 	activeTools?: string[];
+	/** NS-D1: set when the child runs in an isolated git worktree. */
+	worktree?: { path: string; repoRoot: string };
 }
 
 export function buildChildAgentDoctrine(options: ChildAgentDoctrineOptions): string | undefined {
@@ -70,6 +72,11 @@ export function buildChildAgentDoctrine(options: ChildAgentDoctrineOptions): str
 	if (hasAgentMessage && hasIpython) {
 		lines.push(
 			'When a task calls for an answer, reply explicitly with `await agent_message.send(message, receiver_role="parent")`. Not every message or task needs a reply; continue cleanup after sending and go idle normally.',
+		);
+	}
+	if (options.worktree) {
+		lines.push(
+			`You are working in an isolated git worktree at ${options.worktree.path} (detached checkout of ${options.worktree.repoRoot}). Never modify files outside this tree or in the original repository. When you finish, your file changes are captured as a patch and applied to the parent checkout; do not create branches, commit, or push. This session closes when the task ends and cannot be resumed.`,
 		);
 	}
 	return lines.join("\n");

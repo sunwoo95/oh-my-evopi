@@ -19,6 +19,7 @@
  * out of scope for this gated backport.
  */
 
+import { readFileSync } from "node:fs";
 import {
 	formatHashlineHeader,
 	InMemorySnapshotStore,
@@ -30,9 +31,78 @@ import {
 } from "@evopi/hashline";
 import type { AgentToolResult } from "@evopi/pi-agent-core";
 import { type Static, Type } from "typebox";
+import { recordEditCheckpoint } from "../edit-checkpoints.js";
 import type { ToolDefinition } from "../extensions/types.js";
 import { resolveToCwd } from "./path-utils.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
+
+export interface HashlineEditToolOptions {
+	/**
+	 * NS-D4 edit checkpoints: returns the session's checkpoint directory, or
+	 * undefined when disabled / non-persistent. Re-read on every call so a
+	 * settings change applies without rebuilding the tool.
+	 */
+	checkpointDir?: () => string | undefined;
+	/** Largest before-image snapshotted (bytes); larger files are recorded as skipped. */
+	checkpointMaxFileBytes?: number;
+}
+
+const DEFAULT_CHECKPOINT_MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+function readBytesOrNull(path: string): Buffer | null {
+	try {
+		return readFileSync(path);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
+	}
+}
+
+/** Before-images of every path a patch touches (sections + move destinations), keyed by canonical path. */
+function captureBeforeImages(patch: Patch, fs: CwdFilesystem): Map<string, Buffer | null> {
+	const before = new Map<string, Buffer | null>();
+	for (const section of patch.sections) {
+		const canonical = fs.canonicalPath(section.path);
+		if (!before.has(canonical)) before.set(canonical, readBytesOrNull(canonical));
+		let fileOp: { kind: string; dest?: string } | undefined;
+		try {
+			fileOp = section.parse().fileOp;
+		} catch {
+			// Malformed body: the patcher reports it; nothing extra to snapshot.
+		}
+		if (fileOp?.kind === "move" && fileOp.dest) {
+			const dest = fs.canonicalPath(fileOp.dest);
+			if (!before.has(dest)) before.set(dest, readBytesOrNull(dest));
+		}
+	}
+	return before;
+}
+
+/** Record one checkpoint per touched path whose bytes actually changed. Never throws. */
+function recordHashlineCheckpoints(
+	dir: string,
+	before: Map<string, Buffer | null>,
+	toolCallId: string,
+	maxFileBytes: number,
+): void {
+	for (const [path, previous] of before) {
+		try {
+			const after = readBytesOrNull(path);
+			if (previous === null && after === null) continue;
+			if (previous !== null && after !== null && previous.equals(after)) continue;
+			recordEditCheckpoint(dir, {
+				path,
+				before: previous,
+				after,
+				source: "hashline",
+				maxFileBytes,
+				cellId: toolCallId,
+			});
+		} catch {
+			// A failed checkpoint must never fail the edit (same posture as the kernel skill).
+		}
+	}
+}
 
 const hashlineEditSchema = Type.Object(
 	{
@@ -122,6 +192,7 @@ async function syncSectionTags(patch: Patch, fs: CwdFilesystem, snapshots: InMem
 
 export function createHashlineEditToolDefinition(
 	cwd: string,
+	options?: HashlineEditToolOptions,
 ): ToolDefinition<typeof hashlineEditSchema, HashlineEditToolDetails | undefined> {
 	const fs = new CwdFilesystem(cwd);
 	const snapshots = new InMemorySnapshotStore();
@@ -135,7 +206,7 @@ export function createHashlineEditToolDefinition(
 		promptSnippet: "Apply line-anchored hashline patches to existing files",
 		parameters: hashlineEditSchema,
 		async execute(
-			_toolCallId,
+			toolCallId,
 			input: HashlineEditToolInput,
 			signal?: AbortSignal,
 		): Promise<AgentToolResult<HashlineEditToolDetails | undefined>> {
@@ -144,8 +215,27 @@ export function createHashlineEditToolDefinition(
 			if (parsed.sections.length === 0) {
 				throw new Error("Hashline patch produced no sections. Start each section with a `[path#TAG]` header.");
 			}
+			// Snapshot before the Patcher writes; only when checkpoints are enabled
+			// (undefined dir = byte-identical legacy path).
+			const checkpointDir = options?.checkpointDir?.();
+			let beforeImages: Map<string, Buffer | null> | undefined;
+			if (checkpointDir) {
+				try {
+					beforeImages = captureBeforeImages(parsed, fs);
+				} catch {
+					beforeImages = undefined;
+				}
+			}
 			const synced = await syncSectionTags(parsed, fs, snapshots);
 			const result = await patcher.apply(Patch.parse(synced, { cwd }));
+			if (checkpointDir && beforeImages) {
+				recordHashlineCheckpoints(
+					checkpointDir,
+					beforeImages,
+					toolCallId,
+					options?.checkpointMaxFileBytes ?? DEFAULT_CHECKPOINT_MAX_FILE_BYTES,
+				);
+			}
 
 			const sections = result.sections.map((s) => ({
 				path: s.path,
@@ -173,6 +263,6 @@ export function createHashlineEditToolDefinition(
 	};
 }
 
-export function createHashlineEditTool(cwd: string) {
-	return wrapToolDefinition(createHashlineEditToolDefinition(cwd));
+export function createHashlineEditTool(cwd: string, options?: HashlineEditToolOptions) {
+	return wrapToolDefinition(createHashlineEditToolDefinition(cwd, options));
 }

@@ -35,6 +35,46 @@ export const COMPACTION_OUTCOME_CUSTOM_TYPE = "compaction_outcome";
 export const REFINEMENT_OUTCOME_CUSTOM_TYPE = "refinement_outcome";
 export const RLM_CHILD_FAILURE_CUSTOM_TYPE = "rlm_child_failure";
 export const RLM_CHILD_TERMINAL_NOTICE_CUSTOM_TYPE = "rlm_child_terminal_notice";
+/** Model-visible notice appended after `/rewind` restored files (NS-D4); stays in LLM context. */
+export const EDIT_REWIND_NOTICE_CUSTOM_TYPE = "edit_rewind_notice";
+
+export interface EditRewindNoticeDetails {
+	/** Checkpoint seq the files were restored to (their state before it). */
+	fromSeq: string;
+	restored: string[];
+	removed: string[];
+	skipped: Array<{ path: string; reason: string }>;
+	/** User-turn the checkpoint belongs to, when known. */
+	turn?: { entryId: string; ordinal: number; preview: string };
+	withConversation: boolean;
+}
+
+export function createEditRewindNoticeMessage(
+	details: EditRewindNoticeDetails,
+	timestamp = Date.now(),
+): CustomMessage<EditRewindNoticeDetails> {
+	const where = details.turn
+		? `before turn ${details.turn.ordinal}${details.turn.preview ? ` ("${details.turn.preview}")` : ""}`
+		: `before checkpoint ${details.fromSeq}`;
+	const lines = ["<edit_rewind_notice>", `The user rewound edited files to their state ${where}.`];
+	if (details.restored.length > 0) lines.push(`Restored: ${details.restored.join(", ")}.`);
+	if (details.removed.length > 0) lines.push(`Removed (did not exist then): ${details.removed.join(", ")}.`);
+	if (details.skipped.length > 0) {
+		lines.push(`Not restored: ${details.skipped.map((entry) => `${entry.path} (${entry.reason})`).join(", ")}.`);
+	}
+	lines.push(
+		"Your earlier edits to these files are no longer on disk. Re-read them before editing again; the Python kernel namespace was not changed.",
+	);
+	lines.push("</edit_rewind_notice>");
+	return {
+		role: "custom",
+		customType: EDIT_REWIND_NOTICE_CUSTOM_TYPE,
+		content: lines.join("\n"),
+		display: true,
+		details,
+		timestamp,
+	};
+}
 
 export interface SessionSlashCommandDetails {
 	command: SessionSlashCommand;

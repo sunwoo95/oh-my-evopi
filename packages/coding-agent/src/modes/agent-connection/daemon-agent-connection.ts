@@ -15,6 +15,7 @@ import type {
 	AgentHeartbeatManagementAction,
 	AgentHeartbeatUpdateAction,
 } from "../../core/cron-jobs.js";
+import type { KernelCellTimeoutStatus, SetKernelCellTimeoutResult } from "../../core/kernel-cell-timeout.js";
 import type { AcpMcpServerConfig } from "../../core/mcp/acp-mcp-types.js";
 import type { RefinementResult } from "../../core/refinement/index.js";
 import type { DeleteSessionFileResult } from "../../core/session-file-actions.js";
@@ -1490,6 +1491,22 @@ export class DaemonAgentConnection implements AgentConnection {
 			type: "set_rlm_max_depth",
 			activeSessionId: this.activeSessionId,
 			maxDepth,
+			global: options?.global,
+		});
+	}
+
+	async getKernelCellTimeoutStatus() {
+		return this.requestData<KernelCellTimeoutStatus>({
+			type: "get_kernel_cell_timeout_status",
+			activeSessionId: this.activeSessionId,
+		});
+	}
+
+	async setKernelCellTimeoutMs(timeoutMs: number, options?: { global?: boolean }) {
+		return this.requestData<SetKernelCellTimeoutResult>({
+			type: "set_kernel_cell_timeout",
+			activeSessionId: this.activeSessionId,
+			timeoutMs,
 			global: options?.global,
 		});
 	}

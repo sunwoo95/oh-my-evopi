@@ -11,6 +11,11 @@ export const KERNEL_ABORT_GRACE_MS = 1000;
 export const KERNEL_BUSY_REUSE_WAIT_MS = 5000;
 export const KERNEL_BUSY_INTERRUPT_INTERVAL_MS = 500;
 export const MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS = 256;
+/**
+ * Fraction of a user cell's wall-clock cap after which {@link ExecuteOptions.onTimeoutWarning}
+ * fires once (A4). Fixed by decision; not a setting.
+ */
+export const DEFAULT_CELL_TIMEOUT_WARNING_RATIO = 0.8;
 const KERNEL_BUSY_AFTER_INTERRUPT_MESSAGE =
 	"The Python kernel is still running the previously interrupted cell. Wait and try again, or kill the kernel to start fresh.";
 
@@ -65,6 +70,22 @@ export interface KernelStartOptions {
 	signal?: AbortSignal;
 }
 
+/** Fired once when a user cell crosses {@link DEFAULT_CELL_TIMEOUT_WARNING_RATIO} of its cap. */
+export interface CellTimeoutWarning {
+	elapsedMs: number;
+	timeoutMs: number;
+	remainingMs: number;
+}
+
+/** Live view of the user cell currently executing, for status displays. */
+export interface ActiveCellInfo {
+	elapsedMs: number;
+	/** Cap in effect for this cell; 0 = none. */
+	timeoutMs: number;
+	/** The cap already fired; a new cap can only apply to the next cell. */
+	timedOut: boolean;
+}
+
 export interface ExecuteOptions {
 	/** Aborting interrupts the kernel out-of-band. */
 	signal?: AbortSignal;
@@ -79,6 +100,12 @@ export interface ExecuteOptions {
 	 * snapshot. Omit or 0 for no cap.
 	 */
 	timeoutMs?: number;
+	/**
+	 * Called once when the cell has consumed {@link DEFAULT_CELL_TIMEOUT_WARNING_RATIO}
+	 * of its cap (never for internal cells or when there is no cap). Fires from a
+	 * timer, so it must not throw; exceptions are swallowed.
+	 */
+	onTimeoutWarning?: (info: CellTimeoutWarning) => void;
 	/** Synthetic host cell (snapshot/restore/list); excluded from lastCellCode attribution. */
 	internal?: boolean;
 	/** The protocol repair's own restore; exempt from waiting on the repair it belongs to. */
@@ -148,6 +175,8 @@ export interface ExecuteResult {
 	status: "ok" | "error" | "aborted";
 	error?: { ename: string; evalue: string; traceback: string[] };
 	durationMs: number;
+	/** Present only when the cell hit its wall-clock cap (`error.ename === "KernelCellTimeout"`). */
+	timedOut?: { timeoutMs: number; kernelRestarted: boolean };
 }
 
 /** Parse a {@link DIFF_DISPLAY_MIME} payload, tolerating malformed input. */
@@ -297,6 +326,14 @@ export interface KernelClient {
 	pruneOversizedVariables(): Promise<SnapshotResult | null>;
 	restoreState(): Promise<RestoreResult | null>;
 	listNamespaceNames(signal?: AbortSignal): Promise<string[] | null>;
+	/**
+	 * Re-arm the wall-clock cap of the user cell currently executing (0 = remove
+	 * the cap for this cell). Returns false when no user cell is running or its
+	 * cap already fired — the new value then only applies to the next cell.
+	 */
+	setActiveCellTimeout?(timeoutMs: number): boolean;
+	/** The user cell currently executing, if any. */
+	getActiveCellInfo?(): ActiveCellInfo | undefined;
 }
 
 // One registry serves every client kind; two parallel registries would

@@ -10,7 +10,7 @@ export interface SlashCommandInfo {
 	sourceInfo: SourceInfo;
 }
 
-export const SESSION_SLASH_COMMAND_NAMES = ["compact", "refine", "goal", "autonomous"] as const;
+export const SESSION_SLASH_COMMAND_NAMES = ["compact", "refine", "goal", "autonomous", "rewind", "worktree"] as const;
 
 export type SessionSlashCommandName = (typeof SESSION_SLASH_COMMAND_NAMES)[number];
 
@@ -56,6 +56,85 @@ export function parseRefineCommandOptions(args: string): RefineCommandOptions {
 		return { rollbackId, global };
 	}
 	return { instructions: rest || undefined, global };
+}
+
+export type RewindCommandOptions =
+	| { kind: "list" }
+	| {
+			kind: "rewind";
+			/** 1-based listing position or a checkpoint seq. */
+			target: string;
+			force: boolean;
+			withConversation: boolean;
+			restartKernel: boolean;
+	  };
+
+const REWIND_USAGE = "Usage: /rewind [list|<N|seq>] [--with-conversation] [--force] [--restart-kernel]";
+
+/**
+ * `/rewind` (NS-D4). Bare or `list` → listing; otherwise the first non-flag
+ * token is the target. Flags may appear in any order; unknown flags are errors.
+ */
+export function parseRewindCommandOptions(args: string): RewindCommandOptions {
+	const tokens = args
+		.trim()
+		.split(/[\t\p{Zs}]+/u)
+		.filter(Boolean);
+	if (tokens.length === 0) return { kind: "list" };
+	let target: string | undefined;
+	let force = false;
+	let withConversation = false;
+	let restartKernel = false;
+	for (const token of tokens) {
+		if (token === "--force" || token === "-f") force = true;
+		else if (token === "--with-conversation" || token === "--conversation") withConversation = true;
+		else if (token === "--restart-kernel") restartKernel = true;
+		else if (token.startsWith("-")) throw new Error(`Unknown option ${token}. ${REWIND_USAGE}`);
+		else if (target === undefined) target = token;
+		else throw new Error(`Unexpected argument ${token}. ${REWIND_USAGE}`);
+	}
+	if (target === undefined || target === "list") {
+		if (force || withConversation || restartKernel) throw new Error(REWIND_USAGE);
+		return { kind: "list" };
+	}
+	return { kind: "rewind", target, force, withConversation, restartKernel };
+}
+
+export type WorktreeCommandOptions =
+	| { kind: "list" }
+	| {
+			kind: "prune";
+			/** Also remove live and marker-less worktrees. */
+			all: boolean;
+			/** Report what would be removed without deleting. */
+			dryRun: boolean;
+	  };
+
+const WORKTREE_USAGE = "Usage: /worktree [list|prune [--all] [--dry-run]]";
+
+/**
+ * `/worktree` (NS-D1). Bare or `list` → listing of isolated subagent worktrees;
+ * `prune` removes the ones whose owner process is gone. Unknown tokens are errors.
+ */
+export function parseWorktreeCommandOptions(args: string): WorktreeCommandOptions {
+	const tokens = args
+		.trim()
+		.split(/[\t\p{Zs}]+/u)
+		.filter(Boolean);
+	const subcommand = tokens[0] ?? "list";
+	if (subcommand === "list") {
+		if (tokens.length > 1) throw new Error(`Unexpected argument ${tokens[1]}. ${WORKTREE_USAGE}`);
+		return { kind: "list" };
+	}
+	if (subcommand !== "prune") throw new Error(`Unknown subcommand ${subcommand}. ${WORKTREE_USAGE}`);
+	let all = false;
+	let dryRun = false;
+	for (const token of tokens.slice(1)) {
+		if (token === "--all") all = true;
+		else if (token === "--dry-run") dryRun = true;
+		else throw new Error(`Unknown option ${token}. ${WORKTREE_USAGE}`);
+	}
+	return { kind: "prune", all, dryRun };
 }
 
 export interface BuiltinSlashCommand {
@@ -172,10 +251,31 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		takesArgument: true,
 	},
 	{
+		name: "rewind",
+		description:
+			"Restore files edited via the kernel edit skill (and hashline_edit) to an earlier checkpoint; bare opens a picker",
+		argumentHint: "[list|<N|seq>] [--with-conversation] [--force] [--restart-kernel]",
+		takesArgument: true,
+	},
+	{
+		name: "worktree",
+		description:
+			"List isolated subagent git worktrees, or prune the ones whose owner process is gone (--all removes every entry)",
+		argumentHint: "[list|prune [--all] [--dry-run]]",
+		takesArgument: true,
+	},
+	{
 		name: "rlm-max-depth",
 		description:
 			"Set/view the per-chat persistent RLM max depth immediately; never interrupts or queues the running turn",
 		argumentHint: "[<int> [--global]]",
+		takesArgument: true,
+	},
+	{
+		name: "kernel",
+		description:
+			"Show or set Python kernel options immediately: timeout <ms|Ns|Nm|Nh|off> [--global] also re-arms the running cell",
+		argumentHint: "[timeout <ms|Nm|off> [--global]]",
 		takesArgument: true,
 	},
 	{

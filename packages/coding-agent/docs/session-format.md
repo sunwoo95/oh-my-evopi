@@ -264,6 +264,8 @@ Extension state persistence. Does NOT participate in LLM context.
 
 Use `customType` to identify your extension's entries on reload.
 
+evopi itself uses `customType: "edit_checkpoint"` (data `{ toolCallId, toolName: "ipython" | "hashline_edit" | "rewind", records: [{ seq, path, source, kind, skipped? }] }`) to tie edit-checkpoint records to the tool call that produced them, and `customType: "permission_gate"` for approval-gate decisions (`{ decision, tier, policy, hazardKind?, tool, commandSha256, mode }`). See rlm-runtime.md "Edit checkpoints" and settings.md "Permission gate and approval tiers".
+
 ### ChildUsageAttributionEntry
 
 Records RLM child usage folded into a parent assistant message. This entry is daemon bookkeeping and does not enter model context.
@@ -286,6 +288,8 @@ Extension-injected messages that DO participate in LLM context.
 ```json
 {"type":"custom_message","id":"i9j0k1l2","parentId":"h8i9j0k1","timestamp":"2024-12-03T14:25:00.000Z","customType":"my-extension","content":"Injected context...","display":true}
 ```
+
+Built-in model-visible custom messages include `edit_rewind_notice` (appended after `/rewind`; details `{ fromSeq, restored, removed, skipped, turn?, withConversation }`).
 
 Fields:
 - `content`: String or `(TextContent | ImageContent)[]` (same as UserMessage)

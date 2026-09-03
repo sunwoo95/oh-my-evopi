@@ -2481,7 +2481,8 @@ export class AgentDaemon {
 		parentState: ActiveSessionState,
 		options: CreateRlmSubagentRuntimeOptions,
 	): Promise<AgentSessionRuntime> {
-		const sessionManager = SessionManager.create(options.parentSession.sessionManager.getCwd(), options.sessionDir);
+		const childCwd = (options as { cwd?: string }).cwd ?? options.parentSession.sessionManager.getCwd();
+		const sessionManager = SessionManager.create(childCwd, options.sessionDir);
 		sessionManager.newSession({
 			parentSession: options.parentSession.sessionFile,
 			rlmDepth: options.rlmDepth,
@@ -2538,6 +2539,7 @@ export class AgentDaemon {
 					rlmSessionDir: options.sessionDir,
 					rlmParentNodeId: options.rlmParentNodeId,
 					rlmParentAgent: options.parentSession.sessionName ?? options.parentSession.sessionId,
+					rlmWorktree: options.worktree,
 				},
 				runtimeMetadata: {
 					kind: "subagent",
@@ -4943,6 +4945,23 @@ export class AgentDaemon {
 				const state = this.getSessionState(command.activeSessionId);
 				const result = await state.runtime.session.setRlmMaxDepth(command.maxDepth, { global: command.global });
 				return success(command.id, "set_rlm_max_depth", result);
+			}
+
+			case "get_kernel_cell_timeout_status": {
+				const state = this.getSessionState(command.activeSessionId);
+				return success(
+					command.id,
+					"get_kernel_cell_timeout_status",
+					state.runtime.session.getKernelCellTimeoutStatus(),
+				);
+			}
+
+			case "set_kernel_cell_timeout": {
+				const state = this.getSessionState(command.activeSessionId);
+				const result = await state.runtime.session.setKernelCellTimeoutMs(command.timeoutMs, {
+					global: command.global,
+				});
+				return success(command.id, "set_kernel_cell_timeout", result);
 			}
 
 			case "get_session_context": {
