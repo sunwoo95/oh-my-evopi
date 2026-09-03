@@ -762,3 +762,9 @@ evo on/off·update) PASS. 관찰: 옵션을 서브커맨드 앞에 두면 프롬
 stderr 상한(R3) · 셀 타임아웃+커널 회수(R4) · 게이트 21패턴+bash()셀 검사(R5) · 문서 정합(R6) · shellcheck 0(R7) ·
 보호경로 쓰기 게이트(R8) · 지연 로더 unhandled rejection 수정(R9) · check:shell 게이트(R10) · 4.7G 코어덤프 제거(R11) ·
 릴리스 체크 4,668/0/0(R12). 게시는 아래 [배포완료] 항목.
+
+### [배포완료] 2026-09-03 — v0.10.0 게시 (SE Phase 결과)
+main `005e64a`(범프) ← `0dbf4c3`(라운드 1-11) ← `573bd22`(docs) push, gh-pages `ea2aafe`(v0.9.1-0.9.7 보존 + v0.10.0).
+7 타르볼(evopi·ai·core·hashline·mnemopi·natives-loader·tui). 실검증: 라이브 latest.json=v0.10.0(~10s 전파),
+install.sh sha 일치(c3f8fc48…), 격리 prefix `curl … install.sh | sh` → `evopi-0.10.0.tgz: OK` · 195 packages ·
+`evopi --version`=0.10.0, 설치 번들에 EVOPI_KERNEL_INHERIT_SECRETS·KernelCellTimeout·protected-path 게이트 문자열 존재.

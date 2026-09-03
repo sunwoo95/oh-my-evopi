@@ -841,3 +841,4 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   전부 opt-out(`EVOPI_KERNEL_INHERIT_SECRETS`, `kernel.cellTimeoutMs=0`, `EVOPI_PERMISSION_GATE=warn|off`) → semver **minor** 0.10.0.
 - prime 골격 무수정 원칙 유지(agent-loop·커널 프로토콜 불변; 변경은 spawn env·ExecuteOptions·빌트인 확장·테마 로더).
 - 미해소(후속): OS 샌드박스(bwrap) 는 프로브만 — userns 가용 환경 확보 시 sandbox 확장 승격(D3 재검토 조건 그대로).
+- **[배포완료]** v0.10.0 — main 005e64a / gh-pages ea2aafe, 격리 설치 실검증 통과 (REVIEW 동일 항목).
