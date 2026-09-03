@@ -700,3 +700,8 @@ main push(897cb64) + gh-pages(abcd8b7, v0.9.1-0.9.3 보존). 7 타르볼(+evopi-
 - 의도된 차이 2건: anthropic.ts(Bearer-only, databricks)·register-builtins.ts(복원됨)
 - evopi 고유: databricks-auth(테스트 green)·dialect 배럴 export·prime interop 3곳
 검증: 관련 배치 40 pass, tsgo 0.
+
+### [배포완료] 2026-09-03 — v0.9.5 게시 (로그인 버그픽스판)
+main b7e1c1d + gh-pages 4e4ab11. **최초로 --no-verify 없이 전체 pre-commit 통과**
+(browser-smoke 해소). 라이브 검증: sha 일치, 격리 설치 → 0.9.5, showPrompt
+디태치·bedrock 간접화 설치본 반영 확인.
