@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	createPermissionGateExtension,
 	extractShellCommand,
+	hasDangerousRecursiveRm,
 	isDangerousCommand,
+	PERMISSION_GATE_ENTRY_TYPE,
+	type PermissionGateLogEntry,
 	type PermissionGateMode,
 	protectedPathWrite,
 } from "../src/core/extensions/builtin/permission-gate.js";
@@ -23,7 +27,7 @@ interface Notice {
 	type: string;
 }
 
-function makeMockApi() {
+function makeMockApi(opts: { entries?: Array<{ type: string; data: unknown }>; appendThrows?: boolean } = {}) {
 	const handlers = new Map<string, Array<(e: any, ctx: any) => any>>();
 	const api = {
 		on(event: string, handler: (e: any, ctx: any) => any) {
@@ -31,13 +35,24 @@ function makeMockApi() {
 			list.push(handler);
 			handlers.set(event, list);
 		},
+		// Only present when a test asks for it, so the default mock still mirrors an
+		// API without appendEntry (the gate must survive that too).
+		...(opts.entries || opts.appendThrows
+			? {
+					appendEntry(type: string, data: unknown) {
+						if (opts.appendThrows) throw new Error("session log unavailable");
+						opts.entries?.push({ type, data });
+					},
+				}
+			: {}),
 	} as unknown as ExtensionAPI;
 	return { api, handlers };
 }
 
-function makeCtx(opts: { hasUI: boolean; selectAnswer?: string; notices: Notice[] }): ExtensionContext {
+function makeCtx(opts: { hasUI: boolean; selectAnswer?: string; notices: Notice[]; cwd?: string }): ExtensionContext {
 	return {
 		hasUI: opts.hasUI,
+		cwd: opts.cwd,
 		ui: {
 			notify: (message: string, type: string = "info") => opts.notices.push({ message, type }),
 			select: async (_title: string, _options: string[]) => opts.selectAnswer,
@@ -287,5 +302,237 @@ describe("protected-path writes (SE Round 8)", () => {
 		}
 		expect(result?.block).toBe(true);
 		expect(result?.reason).toContain("protected path .env");
+	});
+});
+
+// --- A3: recursive-rm false-positive reduction -------------------------------
+
+describe("A3 recursive rm classifier — labeled corpus", () => {
+	const cwd = "/abs/cwd";
+	// Everyday project cleanups that used to prompt (or block without a UI).
+	const mustPass: Array<[string, string | undefined]> = [
+		["rm -rf ./dist", cwd],
+		["rm -rf node_modules", cwd],
+		["rm -r /abs/cwd/sub", cwd],
+		["cd build && rm -rf out", cwd],
+		['rm -rf "$TMPDIR/x"', cwd],
+		["rm -rf tmp-build/ coverage/ *.log", cwd],
+		["rm -rf --recursive=no ./x; rm --recursive ./y", cwd],
+		["rm -rf a/../b", cwd],
+		["find . -name '*.pyc' -exec rm -rf {} +", cwd],
+		["rm -rf ./out >/dev/null 2>&1", cwd],
+		["rm -rf .cache", undefined], // no cwd known: plain relative paths still pass
+		["rm -f ./file.txt", cwd], // not recursive at all
+	];
+	// Targets that stay dangerous whatever the cwd.
+	const mustFlag: Array<[string, string | undefined]> = [
+		["rm -rf /", cwd],
+		["rm -rf ~", cwd],
+		["rm -rf $HOME", cwd],
+		["rm -rf /*", cwd],
+		["rm -rf ../..", cwd],
+		["rm -rf /etc", cwd],
+		["sudo rm -rf x", cwd],
+		["rm -rf --no-preserve-root /", cwd],
+		["rm -rf /abs/other", cwd],
+		["cd / && rm -rf *", cwd],
+		["rm -rf ~/", cwd],
+		['rm -rf "$HOME/"', cwd],
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell ${HOME} expansion, not a JS template
+		["rm -rf ${HOME}/*", cwd],
+		["cd /tmp && rm -rf work", cwd], // relative, but an earlier cd moved out of the project
+		["cd .. && rm -rf sibling", cwd], // resolves to /abs/sibling, outside the project
+		["rm -rf /important", undefined], // no cwd known: absolute is conservatively dangerous
+		["rm -rf ../x", undefined],
+		["/bin/rm -Rf /var/lib", cwd],
+	];
+
+	it("passes recursive deletes scoped to the project", () => {
+		for (const [command, dir] of mustPass) {
+			expect(isDangerousCommand(command, { cwd: dir }), command).toBe(false);
+		}
+	});
+
+	it("still flags root, home, globs, traversal, foreign absolute paths and sudo", () => {
+		for (const [command, dir] of mustFlag) {
+			expect(isDangerousCommand(command, { cwd: dir }), command).toBe(true);
+		}
+	});
+
+	it("scans every rm invocation of a compound command", () => {
+		expect(hasDangerousRecursiveRm("rm -rf ./a && rm -rf /", cwd)).toBe(true);
+		expect(hasDangerousRecursiveRm("rm -rf ./a; rm -rf ./b | tee log", cwd)).toBe(false);
+		expect(hasDangerousRecursiveRm("echo done && rm -rf ~/projects", cwd)).toBe(true);
+	});
+
+	it("sees rm inside ipython shell literals", () => {
+		expect(isDangerousCommand('await bash("rm -rf /")', { cwd })).toBe(true);
+		expect(isDangerousCommand('await bash("rm -rf ./build")', { cwd })).toBe(false);
+		expect(isDangerousCommand("!rm -rf /", { cwd })).toBe(true);
+		expect(isDangerousCommand('await bash("cd / && rm -rf *")', { cwd })).toBe(true);
+	});
+
+	it("uses ctx.cwd at the tool_call boundary", async () => {
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({ probe: unavailableProbe, mode: mode("block") })(api);
+		const inProject = makeCtx({ hasUI: false, notices: [], cwd });
+		expect(await fireToolCall(handlers, bashEvent("rm -rf /abs/cwd/tmp-build"), inProject)).toBeUndefined();
+		const outside = await fireToolCall(handlers, bashEvent("rm -rf /abs/elsewhere"), inProject);
+		expect(outside?.block).toBe(true);
+	});
+});
+
+describe("A3 permissionGate settings — allow whitelist and mode precedence", () => {
+	const ENV = "EVOPI_PERMISSION_GATE";
+	const savedEnv = process.env[ENV];
+	afterEach(() => {
+		if (savedEnv === undefined) delete process.env[ENV];
+		else process.env[ENV] = savedEnv;
+	});
+
+	it("a command matching an allow regex skips the gate entirely", async () => {
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({
+			probe: unavailableProbe,
+			mode: mode("block"),
+			settings: () => ({ allow: ["^rm -rf /scratch/", "^git clean"] }),
+		})(api);
+		const ctx = makeCtx({ hasUI: false, notices: [] });
+		fireSessionStart(handlers, ctx);
+		expect(await fireToolCall(handlers, bashEvent("rm -rf /scratch/run-1"), ctx)).toBeUndefined();
+		// Non-matching dangerous commands are still blocked.
+		const blocked = await fireToolCall(handlers, bashEvent("rm -rf /etc"), ctx);
+		expect(blocked?.block).toBe(true);
+	});
+
+	it("ignores an invalid allow regex, notifies once, and keeps the valid ones", async () => {
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({
+			probe: unavailableProbe,
+			mode: mode("block"),
+			settings: () => ({ allow: ["(unclosed", "^rm -rf /scratch/"] }),
+		})(api);
+		const notices: Notice[] = [];
+		const ctx = makeCtx({ hasUI: false, notices });
+		fireSessionStart(handlers, ctx);
+		expect(await fireToolCall(handlers, bashEvent("rm -rf /scratch/x"), ctx)).toBeUndefined();
+		expect(await fireToolCall(handlers, bashEvent("rm -rf /scratch/y"), ctx)).toBeUndefined();
+		const invalid = notices.filter((n) => /invalid regex/.test(n.message));
+		expect(invalid).toHaveLength(1);
+		expect(invalid[0].message).toContain("(unclosed");
+	});
+
+	it("permissionGate.mode is honored when the env var is unset", async () => {
+		delete process.env[ENV];
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({ probe: unavailableProbe, settings: () => ({ mode: "off" }) })(api);
+		const notices: Notice[] = [];
+		const ctx = makeCtx({ hasUI: false, notices });
+		fireSessionStart(handlers, ctx);
+		expect(await fireToolCall(handlers, bashEvent("rm -rf /"), ctx)).toBeUndefined();
+		expect(notices).toHaveLength(0);
+	});
+
+	it("EVOPI_PERMISSION_GATE beats permissionGate.mode", async () => {
+		process.env[ENV] = "block";
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({ probe: unavailableProbe, settings: () => ({ mode: "off" }) })(api);
+		const ctx = makeCtx({ hasUI: false, notices: [] });
+		fireSessionStart(handlers, ctx);
+		const result = await fireToolCall(handlers, bashEvent("rm -rf /"), ctx);
+		expect(result?.block).toBe(true);
+	});
+
+	it("defaults to block when neither env nor settings configure a mode", async () => {
+		delete process.env[ENV];
+		const { api, handlers } = makeMockApi();
+		createPermissionGateExtension({ probe: unavailableProbe, settings: () => undefined })(api);
+		const ctx = makeCtx({ hasUI: false, notices: [] });
+		fireSessionStart(handlers, ctx);
+		expect((await fireToolCall(handlers, bashEvent("rm -rf /"), ctx))?.block).toBe(true);
+	});
+});
+
+// --- A5: gate telemetry -------------------------------------------------------
+
+describe("A5 permission_gate telemetry", () => {
+	const sha16 = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 16);
+
+	it("records one schema-conformant entry per decision without the command text", async () => {
+		const entries: Array<{ type: string; data: unknown }> = [];
+		const { api, handlers } = makeMockApi({ entries });
+		createPermissionGateExtension({
+			probe: unavailableProbe,
+			mode: mode("block"),
+			settings: () => ({ allow: ["^rm -rf /scratch/"] }),
+		})(api);
+		fireSessionStart(handlers, makeCtx({ hasUI: false, notices: [] }));
+
+		const noUi = makeCtx({ hasUI: false, notices: [] });
+		await fireToolCall(handlers, bashEvent("rm -rf /etc/secret-dir"), noUi); // blocked
+		await fireToolCall(handlers, bashEvent("rm -rf /scratch/secret-run"), noUi); // allowed-by-whitelist
+		await fireToolCall(handlers, bashEvent("ls -la"), noUi); // benign: no entry
+		await fireToolCall(handlers, bashEvent("rm -rf /"), makeCtx({ hasUI: true, selectAnswer: "Yes", notices: [] }));
+		await fireToolCall(handlers, bashEvent("rm -rf /"), makeCtx({ hasUI: true, selectAnswer: "No", notices: [] }));
+		await fireToolCall(handlers, ipythonEvent('edit(".env", [("A=1", "A=2")])'), noUi); // protected path
+
+		expect(entries.map((e) => e.type)).toEqual(Array(5).fill(PERMISSION_GATE_ENTRY_TYPE));
+		const data = entries.map((e) => e.data as PermissionGateLogEntry);
+		expect(data.map((d) => d.decision)).toEqual([
+			"blocked",
+			"allowed-by-whitelist",
+			"confirmed-by-user",
+			"denied-by-user",
+			"blocked",
+		]);
+		for (const d of data) {
+			expect(Object.keys(d).sort()).toEqual(["commandSha256", "decision", "hazardKind", "mode", "tool"]);
+			expect(d.mode).toBe("block");
+			expect(d.commandSha256).toMatch(/^[0-9a-f]{16}$/);
+		}
+		expect(data.map((d) => d.tool)).toEqual(["bash", "bash", "bash", "bash", "ipython"]);
+		expect(data.map((d) => d.hazardKind)).toEqual([
+			"dangerous-command",
+			"dangerous-command",
+			"dangerous-command",
+			"dangerous-command",
+			"protected-path-write",
+		]);
+		expect(data[0].commandSha256).toBe(sha16("rm -rf /etc/secret-dir"));
+		expect(data[1].commandSha256).toBe(sha16("rm -rf /scratch/secret-run"));
+		expect(data[2].commandSha256).toBe(data[3].commandSha256);
+		const serialized = JSON.stringify(entries);
+		expect(serialized).not.toContain("secret-dir");
+		expect(serialized).not.toContain("secret-run");
+		expect(serialized).not.toContain("rm -rf");
+		expect(serialized).not.toContain(".env");
+	});
+
+	it("records 'warned' in warn mode and nothing in off mode", async () => {
+		const entries: Array<{ type: string; data: unknown }> = [];
+		const warn = makeMockApi({ entries });
+		createPermissionGateExtension({ probe: unavailableProbe, mode: mode("warn") })(warn.api);
+		const ctx = makeCtx({ hasUI: false, notices: [] });
+		fireSessionStart(warn.handlers, ctx);
+		await fireToolCall(warn.handlers, bashEvent("rm -rf /"), ctx);
+		expect((entries[0]?.data as PermissionGateLogEntry).decision).toBe("warned");
+		expect((entries[0]?.data as PermissionGateLogEntry).mode).toBe("warn");
+
+		const offEntries: Array<{ type: string; data: unknown }> = [];
+		const off = makeMockApi({ entries: offEntries });
+		createPermissionGateExtension({ probe: unavailableProbe, mode: mode("off") })(off.api);
+		fireSessionStart(off.handlers, ctx);
+		await fireToolCall(off.handlers, bashEvent("rm -rf /"), ctx);
+		expect(offEntries).toHaveLength(0);
+	});
+
+	it("a failing appendEntry never changes the gate decision", async () => {
+		const { api, handlers } = makeMockApi({ appendThrows: true });
+		createPermissionGateExtension({ probe: unavailableProbe, mode: mode("block") })(api);
+		const ctx = makeCtx({ hasUI: false, notices: [] });
+		fireSessionStart(handlers, ctx);
+		const result = await fireToolCall(handlers, bashEvent("rm -rf /"), ctx);
+		expect(result?.block).toBe(true);
+		expect(await fireToolCall(handlers, bashEvent("ls"), ctx)).toBeUndefined();
 	});
 });

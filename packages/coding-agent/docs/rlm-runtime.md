@@ -198,6 +198,24 @@ Session-local state lives in the session artifact directory under `harness/harne
 
 `/refine` runs a dedicated review over the current trajectory and applies small create/update/delete edits. Rollback uses recorded before/after snapshots. The base system prompt remains immutable; refinements are supplemental state.
 
+### Progress ledger and recall (evo layer)
+
+Two kernel-side helpers borrow the Progress/Experience split from EvoHarness-RL (arXiv 2608.05446) on top of the same store; they are additive methods on `HarnessState`, so old hosts keep working.
+
+```python
+rlm.harness.commit("Add failing test", "open", note="covers the regression")
+rlm.harness.commit("Add failing test", "done")      # same slug → status update in place
+rlm.harness.progress(include_done=False)           # ledger entries ordered by metadata.order
+print(rlm.harness.plan())                          # "# PLAN (1/3 done)" + one line per subgoal
+rlm.harness.recall("pytest venv", kind="memory", limit=3)
+```
+
+- `commit(subgoal, status="open", *, note=None, global_=False)` upserts a `memory` entry with id `progress:<slug>` and `metadata={"bpe": "progress", "status", "order", "updated_turn"}`. Status is one of `open | active | done | blocked` (anything else raises `ValueError`). At most 8 subgoals may be non-done; a ninth raises and asks you to mark one `done` first.
+- `plan()` renders the ledger with `[x]` done, `[>]` active, `[ ]` open, `[!]` blocked.
+- `recall(query, *, kind=None, limit=3, global_=False)` ranks non-progress entries by Jaccard similarity over lowercase word tokens of `title + content + path`, returns the top `limit` with similarity > 0, and increments `metadata["usage_count"]` on each hit (persisted; `version`/`updated_at` are untouched). No match returns `[]` without writing.
+
+Host side, when the evo layer is on (`EVOPI_EVO`/`evo.enabled`, or `harness.selection: "mmr"` — the same gate as the MMR injection selector), the system prompt's harness section is rendered in BPE view: a `# PLAN` block (with the active goal objective, when any) is prepended, each injected entry is prefixed with its class (`[progress]`, `[experience]`, `[belief]` from `metadata.bpe`), progress entries are lifted out of the `memory` list so they do not consume injection slots, the guidance gains one sentence each for `rlm.harness.commit(...)` and `rlm.harness.recall(...)`, and `usage_count` adds `min(count, 10) * 0.02` to an entry's MMR relevance. With the gate off the harness section and system prompt are byte-identical to the stock output (`test/progress-ledger.test.ts`). The PLAN block reflects the ledger as of the last system-prompt rebuild (session start, tool changes, `/refine` completion, extension load); `rlm.harness.plan()` is always live.
+
 ## Goal Requests
 
 The bundled `goal` Python skill is a thin host-bridge client:
@@ -247,7 +265,13 @@ withheld, because provider calls never happen inside the kernel (they run in the
 host, and `rlm()` subagents are dispatched over `host_request`). Set
 `EVOPI_KERNEL_INHERIT_SECRETS=1` when a Python skill genuinely needs one.
 Project credentials such as `GH_TOKEN`, AWS IAM variables and `SERPER_API_KEY`
-pass through unchanged.
+pass through unchanged under the default `kernel.envPolicy: "denylist"`.
+`kernel.envPolicy: "allowlist"` (or `EVOPI_KERNEL_ENV_POLICY=allowlist`) inverts
+this: only a fixed safe set (`PATH`, `HOME`, locale, `TERM`, temp dirs, `XDG_*`,
+`EVOPI_*`, Python tooling, CA bundles, proxies) plus the names in
+`kernel.envAllow` (`"MYCO_*"` matches a prefix) reach the kernel, so unknown
+`*_API_KEY`/`*_TOKEN` variables are withheld. The withheld names are listed in
+the kernel diagnostics tail either way.
 
 Each user cell is capped by `kernel.cellTimeoutMs` (default 30 minutes,
 `EVOPI_KERNEL_CELL_TIMEOUT_MS` overrides, `0` disables). On expiry the runtime

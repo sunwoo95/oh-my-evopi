@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMmrHarnessSelector } from "../src/core/refinement/harness-select.js";
+import { createMmrHarnessSelector, usageBonus } from "../src/core/refinement/harness-select.js";
 import {
 	formatHarnessStateForPrompt,
 	type HarnessEntry,
@@ -96,6 +96,58 @@ describe("createMmrHarnessSelector", () => {
 		const run1 = selector("memory", entries, 3).map((e) => e.id);
 		const run2 = selector("memory", entries, 3).map((e) => e.id);
 		expect(run1).toEqual(run2);
+	});
+
+	it("computes the recall usage bonus as min(usage_count, 10) * 0.02", () => {
+		expect(usageBonus(entry({ id: "none" }))).toBe(0);
+		expect(usageBonus(entry({ id: "one", metadata: { usage_count: 1 } }))).toBeCloseTo(0.02);
+		expect(usageBonus(entry({ id: "five", metadata: { usage_count: 5 } }))).toBeCloseTo(0.1);
+		expect(usageBonus(entry({ id: "capped", metadata: { usage_count: 40 } }))).toBeCloseTo(0.2);
+		expect(usageBonus(entry({ id: "negative", metadata: { usage_count: -3 } }))).toBe(0);
+		expect(usageBonus(entry({ id: "string", metadata: { usage_count: "7" } }))).toBe(0);
+	});
+
+	it("favors frequently recalled entries over an equally recent unused one (B2)", () => {
+		// Same updated_at, distinct topics: recency ties, so usage_count breaks the tie.
+		const entries = [
+			entry({ id: "unused", title: "alpha lesson", content: "totally distinct topic one" }),
+			entry({
+				id: "recalled",
+				title: "beta lesson",
+				content: "another unrelated topic two",
+				metadata: { usage_count: 6 },
+			}),
+		];
+		const selector = createMmrHarnessSelector({ now: () => NOW });
+
+		expect(selector("memory", entries, 1).map((e) => e.id)).toEqual(["recalled"]);
+	});
+
+	it("lets a heavily recalled older entry outrank a slightly newer one, but not a much newer one", () => {
+		const older = entry({
+			id: "older_hot",
+			title: "alpha lesson",
+			content: "totally distinct topic one",
+			updated_at: "2026-08-31T00:00:00Z", // 1 day older: recency ≈ 0.906
+			metadata: { usage_count: 10 }, // +0.2 → ≈ 1 (clamped)
+		});
+		const newer = entry({
+			id: "newer_cold",
+			title: "beta lesson",
+			content: "another unrelated topic two",
+			updated_at: "2026-09-01T00:00:00Z",
+		});
+		const muchOlder = entry({
+			id: "stale_hot",
+			title: "gamma lesson",
+			content: "yet another separate topic three",
+			updated_at: "2026-06-01T00:00:00Z", // ~13 weeks old: recency ≈ 0.0
+			metadata: { usage_count: 10 },
+		});
+		const selector = createMmrHarnessSelector({ now: () => NOW });
+
+		expect(selector("memory", [older, newer], 1).map((e) => e.id)).toEqual(["older_hot"]);
+		expect(selector("memory", [muchOlder, newer], 1).map((e) => e.id)).toEqual(["newer_cold"]);
 	});
 });
 

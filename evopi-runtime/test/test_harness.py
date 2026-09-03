@@ -929,6 +929,198 @@ class HarnessStateTest(unittest.TestCase):
                 state.delete("tool", "tool")
             with self.assertRaisesRegex(ValueError, "unknown harness kind"):
                 state.list("tool")
+            with self.assertRaisesRegex(ValueError, "unknown harness kind"):
+                state.recall("anything", kind="tool")
+
+
+class ProgressLedgerTest(unittest.TestCase):
+    def test_commit_creates_a_tagged_memory_entry_with_stable_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+
+            entry = state.commit("Add failing test", "open", note="covers the regression")
+
+            self.assertEqual(entry.kind, "memory")
+            self.assertEqual(entry.id, "progress:add_failing_test")
+            self.assertEqual(entry.title, "Add failing test")
+            self.assertEqual(entry.content, "covers the regression")
+            self.assertEqual(entry.path, "progress")
+            self.assertEqual(entry.metadata["bpe"], "progress")
+            self.assertEqual(entry.metadata["status"], "open")
+            self.assertEqual(entry.metadata["order"], 0)
+            self.assertIn("updated_turn", entry.metadata)
+            # Same store surface as any other memory entry.
+            self.assertIs(state.get("memory", "progress:add_failing_test"), entry)
+            # Without a note the content is the status text.
+            self.assertEqual(state.commit("Run the suite").content, "open")
+
+    def test_commit_updates_status_in_place_and_preserves_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.commit("First", "open")
+            state.commit("Second", "open", note="second note")
+            state.commit("Third", "open")
+
+            updated = state.commit("Second", "active")
+
+            self.assertEqual(updated.id, "progress:second")
+            self.assertEqual(updated.metadata["status"], "active")
+            self.assertEqual(updated.metadata["order"], 1)
+            self.assertEqual(updated.version, 2)
+            # A status-only update keeps the earlier note.
+            self.assertEqual(updated.content, "second note")
+            self.assertEqual([entry.title for entry in state.progress()], ["First", "Second", "Third"])
+            self.assertEqual(len(state.progress()), 3)
+
+            state.commit("Second", "done")
+            self.assertEqual([entry.title for entry in state.progress(include_done=False)], ["First", "Third"])
+            # Persisted through the normal store; order survives reload.
+            reloaded = HarnessState(state.file_path)
+            self.assertEqual([entry.metadata["order"] for entry in reloaded.progress()], [0, 1, 2])
+
+    def test_commit_rejects_invalid_status_and_empty_subgoal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+
+            with self.assertRaisesRegex(ValueError, "invalid progress status 'wip'"):
+                state.commit("Something", "wip")
+            with self.assertRaisesRegex(ValueError, "non-empty"):
+                state.commit("   ")
+            self.assertEqual(state.progress(), [])
+
+    def test_commit_caps_non_done_subgoals_at_eight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            for index in range(8):
+                state.commit(f"Subgoal {index}", "open")
+
+            with self.assertRaisesRegex(ValueError, "8 non-done subgoals.*mark one done first"):
+                state.commit("Subgoal 8", "open")
+            # Re-committing an existing non-done subgoal is not a new slot.
+            state.commit("Subgoal 3", "blocked")
+            # Adding a ninth directly as done is fine, and freeing a slot lets a new one in.
+            state.commit("Subgoal 8", "done")
+            state.commit("Subgoal 0", "done")
+            state.commit("Subgoal 9", "active")
+
+            self.assertEqual(len(state.progress()), 10)
+            self.assertEqual(len(state.progress(include_done=False)), 8)
+
+    def test_plan_renders_markers_in_ledger_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            self.assertEqual(
+                state.plan(),
+                "# PLAN\n(no subgoals committed yet; use rlm.harness.commit('<subgoal>', 'open'))",
+            )
+
+            state.commit("Reproduce", "done")
+            state.commit("Fix parser", "active", note="edge case in tokenizer")
+            state.commit("Add tests", "open")
+            state.commit("Ship", "blocked", note="waiting on review")
+
+            self.assertEqual(
+                state.plan(),
+                "\n".join(
+                    [
+                        "# PLAN (1/4 done)",
+                        "[x] Reproduce",
+                        "[>] Fix parser - edge case in tokenizer",
+                        "[ ] Add tests",
+                        "[!] Ship - waiting on review",
+                    ]
+                ),
+            )
+
+    def test_progress_entries_are_excluded_from_recall(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.commit("Fix tokenizer edge case", "active")
+            lesson = state.create_memory("Tokenizer lesson", "tokenizer edge case needs a regression test", id="lesson")
+
+            hits = state.recall("tokenizer edge case")
+
+            self.assertEqual([entry.id for entry in hits], [lesson.id])
+
+
+class RecallTest(unittest.TestCase):
+    def test_recall_ranks_by_jaccard_and_respects_limit_and_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv")
+            state.create_memory("npm build", "run npm install before npm build", id="npm_build")
+            state.create_memory("uv basics", "uv venv creates the environment", id="uv_basics")
+            state.create_prompt_note("Testing policy", "always run pytest before finishing", id="testing_policy")
+
+            hits = state.recall("run pytest with uv venv")
+
+            self.assertEqual(hits[0].id, "pytest_venv")
+            self.assertEqual(len(hits), 3)
+            self.assertNotIn("npm_build", [entry.id for entry in hits[:2]])
+            self.assertEqual([entry.id for entry in state.recall("run pytest with uv venv", limit=1)], ["pytest_venv"])
+            self.assertEqual(
+                [entry.id for entry in state.recall("run pytest with uv venv", kind="prompt")], ["testing_policy"]
+            )
+            self.assertEqual(state.recall("run pytest", limit=0), [])
+
+    def test_recall_increments_usage_count_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv", metadata={"scope": "local"})
+            state.create_memory("npm build", "run npm install before npm build", id="npm_build")
+
+            state.recall("pytest venv")
+            state.recall("pytest venv")
+            hit = state.recall("pytest venv")[0]
+
+            self.assertEqual(hit.metadata["usage_count"], 3)
+            # Existing metadata is kept; recall is bookkeeping, not an edit.
+            self.assertEqual(hit.metadata["scope"], "local")
+            self.assertEqual(hit.version, 1)
+            self.assertNotIn("usage_count", state.get("memory", "npm_build").metadata)
+            reloaded = HarnessState(state.file_path)
+            self.assertEqual(reloaded.get("memory", "pytest_venv").metadata["usage_count"], 3)
+
+    def test_recall_without_match_returns_empty_and_does_not_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv")
+            before = state.file_path.stat().st_mtime_ns
+            os.utime(state.file_path, ns=(before - 10_000_000_000, before - 10_000_000_000))
+            state.load()
+            stamped = state.file_path.stat().st_mtime_ns
+
+            self.assertEqual(state.recall("completely unrelated words"), [])
+            self.assertEqual(state.recall(""), [])
+            self.assertEqual(state.recall("!!! ???"), [])
+
+            self.assertEqual(state.file_path.stat().st_mtime_ns, stamped)
+            self.assertNotIn("usage_count", state.get("memory", "pytest_venv").metadata)
+
+    def test_recall_routes_global_flag_to_global_store(self) -> None:
+        previous_global = os.environ.get("RLM_GLOBAL_HARNESS_STATE_DIR")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            global_dir = Path(temp_dir) / "global"
+            os.environ["RLM_GLOBAL_HARNESS_STATE_DIR"] = str(global_dir)
+            try:
+                state = HarnessState(Path(temp_dir) / "local" / "harness_state.json")
+                state.create_memory("Global lesson", "always pin the toolchain", id="pin_toolchain", global_=True)
+                hits = state.recall("pin the toolchain", global_=True)
+            finally:
+                if previous_global is None:
+                    os.environ.pop("RLM_GLOBAL_HARNESS_STATE_DIR", None)
+                else:
+                    os.environ["RLM_GLOBAL_HARNESS_STATE_DIR"] = previous_global
+
+            self.assertEqual([entry.id for entry in hits], ["pin_toolchain"])
+            self.assertEqual(hits[0].scope, "global")
+            self.assertEqual(state.recall("pin the toolchain"), [])
+            self.assertEqual(
+                HarnessState(global_dir / "harness_state.json", scope="global")
+                .get("memory", "pin_toolchain")
+                .metadata["usage_count"],
+                1,
+            )
 
 
 if __name__ == "__main__":

@@ -1195,6 +1195,67 @@ describe("harness refinement", () => {
 	});
 });
 
+describe("formatHarnessStateForPrompt BPE view (B1)", () => {
+	function bpeState(): HarnessState {
+		const state = loadHarnessState(makeTempDir());
+		for (const kind of kinds) seedEntry(state, kind);
+		applyRefinementProposal(
+			state,
+			proposal("seed ledger", [
+				{
+					action: "create",
+					kind: "memory",
+					id: "progress:fix_parser",
+					title: "Fix parser",
+					content: "edge case in tokenizer",
+					path: "progress",
+					metadata: { bpe: "progress", status: "active", order: 0 },
+				},
+			]),
+			{ id: "seed_progress" },
+		);
+		return state;
+	}
+
+	it("keeps the stock rendering byte-identical when bpeView is absent, undefined, or false", () => {
+		const state = bpeState();
+		const stock = formatHarnessStateForPrompt(state, { includeIpythonExamples: true, includeRefineExamples: true });
+		const variants = [
+			formatHarnessStateForPrompt(state, {
+				includeIpythonExamples: true,
+				includeRefineExamples: true,
+				bpeView: undefined,
+			}),
+			formatHarnessStateForPrompt(state, {
+				includeIpythonExamples: true,
+				includeRefineExamples: true,
+				bpeView: false,
+			}),
+			formatHarnessStateForPrompt(state, {
+				includeIpythonExamples: true,
+				includeRefineExamples: true,
+				goalObjective: "only used by the BPE view",
+			}),
+		];
+		for (const variant of variants) expect(variant).toBe(stock);
+		// The progress-tagged memory is an ordinary memory line on the off path.
+		expect(stock).toContain("memory: 2");
+		expect(stock).toContain("[local:progress:fix_parser] Fix parser (progress, v1): edge case in tokenizer");
+		expect(stock).not.toContain("# PLAN");
+	});
+
+	it("renders the three-partition view when bpeView is on", () => {
+		const output = formatHarnessStateForPrompt(bpeState(), { bpeView: true, goalObjective: "Ship the parser fix" });
+		expect(
+			output.startsWith("# PLAN (0/1 done)\nGoal: Ship the parser fix\n[>] Fix parser - edge case in tokenizer\n\n"),
+		).toBe(true);
+		expect(output).toContain("memory: 1");
+		expect(output).toContain("- [experience] [local:memory_entry] memory title (memory/path, v1): memory content");
+		expect(output).toContain("- [experience] [local:skill_entry] skill title (skill/path, v1)");
+		expect(output).not.toContain("[local:progress:fix_parser]");
+	});
+});
+
 describe("global refinement history", () => {
 	function sampleResult(id: string, overrides: Partial<RefinementResult> = {}): RefinementResult {
 		return {

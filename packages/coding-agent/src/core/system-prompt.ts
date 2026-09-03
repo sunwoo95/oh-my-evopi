@@ -40,6 +40,10 @@ export interface BuildSystemPromptOptions {
 	harnessState?: HarnessState;
 	/** Optional harness-entry selector (B3/M17: MMR+budget behind the evo gate). */
 	harnessSelector?: HarnessEntrySelector;
+	/** B1: render the BPE view (PLAN block + class labels) behind the evo gate. Undefined = stock output. */
+	harnessBpeView?: boolean;
+	/** B1: goal objective shown under the PLAN header when the BPE view is on. */
+	harnessGoalObjective?: string;
 	/** Enabled user-configured servers available through the generic kernel MCP API. */
 	genericMcpServers?: string[];
 }
@@ -58,6 +62,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		allowRecursion,
 		harnessState,
 		harnessSelector,
+		harnessBpeView,
+		harnessGoalObjective,
 	} = options;
 	const promptCwd = cwd.replace(/\\/g, "/");
 	const promptMessagesPath = (messagesPath ?? "not persisted").replace(/\\/g, "/");
@@ -114,7 +120,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		}
 
 		if (harnessState) {
-			prompt += `\n\n${formatHarnessStateForPrompt(harnessState, { includeIpythonExamples: hasIpython, includeShellExamples: hasBash, includeRefineExamples: hasIpython && hasRefineSkill, selectEntries: harnessSelector })}`;
+			prompt += `\n\n${formatHarnessStateForPrompt(harnessState, { includeIpythonExamples: hasIpython, includeShellExamples: hasBash, includeRefineExamples: hasIpython && hasRefineSkill, selectEntries: harnessSelector, bpeView: harnessBpeView, goalObjective: harnessGoalObjective })}`;
 		}
 
 		if (genericMcpSection) {
@@ -153,7 +159,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	}
 
 	if (harnessState) {
-		prompt += `\n\n${formatHarnessStateForPrompt(harnessState, { includeIpythonExamples: hasIpython, includeShellExamples: hasBash, includeRefineExamples: hasIpython && hasRefineSkill, selectEntries: harnessSelector })}`;
+		prompt += `\n\n${formatHarnessStateForPrompt(harnessState, { includeIpythonExamples: hasIpython, includeShellExamples: hasBash, includeRefineExamples: hasIpython && hasRefineSkill, selectEntries: harnessSelector, bpeView: harnessBpeView, goalObjective: harnessGoalObjective })}`;
 	}
 
 	if (genericMcpSection) {

@@ -169,7 +169,8 @@ export async function createAgentSessionServices(
 	// noExtensions is a full opt-out for every built-in; the permission gate
 	// (intent layer, D4) is otherwise always loaded so destructive commands are
 	// gated out of the box. Its blocking behavior is controlled per-session by
-	// EVOPI_PERMISSION_GATE (block|warn|off); see permission-gate.ts.
+	// EVOPI_PERMISSION_GATE (block|warn|off), then `permissionGate.mode`; the
+	// `permissionGate.allow` regex whitelist bypasses it. See permission-gate.ts.
 	const noBuiltins = options.resourceLoaderOptions?.noExtensions;
 	// The evo-layer grounded-refine extension (D4+D1) is only registered when evo is
 	// enabled; when off (default) it is never loaded, so hasHandlers("session_before_refine")
@@ -177,7 +178,9 @@ export async function createAgentSessionServices(
 	const evoEnabled = settingsManager.resolveEvoEnabled() === true;
 	const builtinExtensionFactories = [
 		...(skipHerdrReporter ? [] : [createHerdrAgentStateExtension(() => resourceLoader.getLoadedExtensionPaths())]),
-		...(noBuiltins ? [] : [createPermissionGateExtension()]),
+		...(noBuiltins
+			? []
+			: [createPermissionGateExtension({ settings: () => settingsManager.getPermissionGateSettings() })]),
 		...(noBuiltins || !evoEnabled ? [] : [createGroundedRefineExtension()]),
 	];
 	const resourceLoader: DefaultResourceLoader = new DefaultResourceLoader({

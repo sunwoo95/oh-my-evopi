@@ -4394,6 +4394,8 @@ export class AgentSession {
 			rlmParentAgent: this._rlmParentAgent,
 			harnessState: this._loadMergedHarnessState(),
 			harnessSelector: this._resolveHarnessSelector(),
+			harnessBpeView: this._resolveHarnessBpeView(),
+			harnessGoalObjective: this._resolveHarnessGoalObjective(),
 			genericMcpServers: this._mcpManager?.getEnabledGenericServers(),
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
@@ -8042,6 +8044,23 @@ export class AgentSession {
 		return createMmrHarnessSelector({ charBudget });
 	}
 
+	/**
+	 * B1 (Progress ledger): the BPE view (PLAN block + class labels) shares the
+	 * MMR selector's gate so evo off / no `harness.selection` setting leaves the
+	 * system prompt byte-identical. Returns undefined (not false) when off so the
+	 * formatter options object is unchanged from stock.
+	 */
+	private _resolveHarnessBpeView(): boolean | undefined {
+		return this.settingsManager.getHarnessSelectionSettings().useMmr ? true : undefined;
+	}
+
+	/** Goal objective for the PLAN header; only meaningful while the BPE view is on. */
+	private _resolveHarnessGoalObjective(): string | undefined {
+		if (!this._resolveHarnessBpeView()) return undefined;
+		const goal = this._goalState;
+		return goal.active && goal.objective ? goal.objective : undefined;
+	}
+
 	private _loadMergedHarnessState(): HarnessState {
 		const localHarnessStateDir = this._localHarnessStateDir();
 		return mergeHarnessStates(
@@ -9116,8 +9135,11 @@ export class AgentSession {
 			// build (a genuine resume). A later rebuild (/reload) restores state silently
 			// for continuity — the conversation is unchanged, so there's nothing to flag.
 			const notifyRestore = !this._ipythonRuntimeBuilt;
+			const kernelEnvPolicy = this.settingsManager.getKernelEnvPolicy();
 			this._ipythonKernelProvisioner = new IpythonKernelProvisioner(this._cwd, {
 				env: this._rlmKernelEnv(),
+				envPolicy: kernelEnvPolicy.policy,
+				envAllow: kernelEnvPolicy.allow,
 				commandPrefix: this.settingsManager.getShellCommandPrefix(),
 				shellPath: this.settingsManager.getShellPath(),
 				sessionId: this.sessionId,

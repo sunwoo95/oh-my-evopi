@@ -17,6 +17,7 @@ import { getAgentDir } from "../../config.js";
 import { serializeConversation } from "../compaction/utils.js";
 import { convertToLlm } from "../messages.js";
 import type { CustomEntry } from "../session-manager.js";
+import { bpeLabel, isProgressEntry, MAX_OPEN_PROGRESS, renderPlanBlock } from "./progress-ledger.js";
 
 export const REFINEMENT_CUSTOM_TYPE = "evopi.refinement";
 
@@ -442,6 +443,17 @@ export function formatHarnessStateForPrompt(
 		 * to render (length ≤ limit).
 		 */
 		selectEntries?: (kind: RefinementKind, entries: HarnessEntry[], limit: number) => HarnessEntry[];
+		/**
+		 * B1/M-phase: EvoHarness-RL BPE view behind the evo gate. When true, a
+		 * `# PLAN` block built from progress-ledger entries is prepended, entry
+		 * lines carry their BPE class (`[progress]`/`[experience]`/`[belief]`),
+		 * progress entries are lifted out of the kind sections (they live in the
+		 * PLAN), and the REPL guidance gains `rlm.harness.commit` / `recall` hints.
+		 * Absent/false = byte-identical to the stock output.
+		 */
+		bpeView?: boolean;
+		/** Optional goal objective rendered under the PLAN header (bpeView only). */
+		goalObjective?: string;
 	} = {},
 ): string {
 	const maxEntriesPerKind = options.maxEntriesPerKind ?? DEFAULT_OVERVIEW_ENTRY_LIMIT;
@@ -449,6 +461,7 @@ export function formatHarnessStateForPrompt(
 	const maxContentLength = options.maxContentLength ?? DEFAULT_OVERVIEW_CONTENT_LIMIT;
 	const includeIpythonExamples = options.includeIpythonExamples ?? true;
 	const includeRefineExamples = options.includeRefineExamples ?? includeIpythonExamples;
+	const bpeView = options.bpeView === true;
 	const lines = [
 		"# Continual Harness State",
 		"",
@@ -469,11 +482,24 @@ export function formatHarnessStateForPrompt(
 		"",
 	];
 
+	if (bpeView) {
+		// Progress partition rendered first (paper: PLAN view every turn), then the
+		// BPE-specific REPL guidance. Both live only in this gated branch.
+		const progressEntries = Object.values(state.entries.memory).filter(isProgressEntry);
+		lines.unshift(renderPlanBlock(progressEntries, { goalObjective: options.goalObjective }), "");
+		if (includeIpythonExamples) {
+			lines.push(
+				`Progress and recall: when you decompose work, call \`rlm.harness.commit("<subgoal>", "open|active|done|blocked")\` for each subgoal and update it as you go, keeping at most ${MAX_OPEN_PROGRESS} non-done subgoals (the PLAN above is rendered from this ledger; \`rlm.harness.plan()\` shows the live view). Before starting a task, call \`rlm.harness.recall("<query>")\` to pull relevant lessons and skills instead of relying on the excerpts below.`,
+				"",
+			);
+		}
+	}
+
 	let totalEntries = 0;
 	for (const kind of Object.keys(state.entries) as RefinementKind[]) {
-		const entries = Object.values(state.entries[kind]).sort((a, b) =>
-			[a.path, a.title, a.id].join("\0").localeCompare([b.path, b.title, b.id].join("\0")),
-		);
+		const entries = Object.values(state.entries[kind])
+			.filter((entry) => !bpeView || !isProgressEntry(entry))
+			.sort((a, b) => [a.path, a.title, a.id].join("\0").localeCompare([b.path, b.title, b.id].join("\0")));
 		totalEntries += entries.length;
 		const selectedEntries = options.selectEntries
 			? options.selectEntries(kind, entries, maxEntriesPerKind).slice(0, maxEntriesPerKind)
@@ -497,8 +523,9 @@ export function formatHarnessStateForPrompt(
 				entry.kind === "skill" && Object.keys(entry.reference).length > 0
 					? ` ref=${compactText(JSON.stringify(entry.reference), maxContentLength)}`
 					: "";
+			const bpeText = bpeView ? `${bpeLabel(entry)} ` : "";
 			lines.push(
-				`- [${entry.scope ?? "global"}:${entry.id}] ${entry.title} (${entry.path}, v${entry.version})${referenceText}${argumentsText}: ${compactText(
+				`- ${bpeText}[${entry.scope ?? "global"}:${entry.id}] ${entry.title} (${entry.path}, v${entry.version})${referenceText}${argumentsText}: ${compactText(
 					entry.content,
 					maxContentLength,
 				)}`,

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,11 +19,42 @@ from typing import Any, Literal
 
 HarnessKind = Literal["prompt", "memory", "skill", "subagent"]
 HarnessScope = Literal["local", "global"]
+ProgressStatus = Literal["open", "active", "done", "blocked"]
 
 _DEFAULT_FILE_NAME = "harness_state.json"
 _DEFAULT_HARNESS_DIR_NAME = "harness"
 _KINDS: tuple[HarnessKind, ...] = ("prompt", "memory", "skill", "subagent")
 _state_cache: dict[tuple[Path, HarnessScope], "HarnessState"] = {}
+
+# Progress ledger (EvoHarness-RL "Progress" partition of the BPE harness): subgoal
+# records (g_i, sigma_i) stored as memory entries tagged metadata.bpe="progress".
+# The ledger is bounded so the model keeps a compact plan instead of a backlog.
+_PROGRESS_STATUSES: tuple[ProgressStatus, ...] = ("open", "active", "done", "blocked")
+_PROGRESS_ID_PREFIX = "progress:"
+_PROGRESS_PATH = "progress"
+_MAX_OPEN_PROGRESS = 8
+_PROGRESS_MARKERS: dict[str, str] = {"done": "[x]", "active": "[>]", "open": "[ ]", "blocked": "[!]"}
+# recall(): Jaccard over lowercase word tokens; mirrors harness-select.ts.
+_TOKEN_RE = re.compile(r"[a-z0-9_]+")
+_DEFAULT_RECALL_LIMIT = 3
+
+
+def _tokens(text: str) -> set[str]:
+    return set(_TOKEN_RE.findall(text.lower()))
+
+
+def _jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    intersection = len(left & right)
+    if intersection == 0:
+        return 0.0
+    return intersection / (len(left) + len(right) - intersection)
+
+
+def _progress_order(entry: "HarnessEntry") -> int:
+    order = entry.metadata.get("order")
+    return order if isinstance(order, int) and not isinstance(order, bool) else 1 << 30
 
 
 def _now() -> str:
@@ -719,6 +751,165 @@ class HarnessState:
             plan.append(f"Immediate validation step: {next_step}")
         return plan
 
+    # ------------------------------------------------------------------
+    # Progress ledger (B1 / P1): subgoal-status records rendered as a PLAN.
+    # ------------------------------------------------------------------
+
+    def _progress_entries(self, *, include_done: bool = True) -> list[HarnessEntry]:
+        records = [
+            entry for entry in self.entries["memory"].values() if entry.metadata.get("bpe") == "progress"
+        ]
+        if not include_done:
+            records = [entry for entry in records if entry.metadata.get("status") != "done"]
+        return sorted(records, key=lambda entry: (_progress_order(entry), entry.id))
+
+    def commit(
+        self,
+        subgoal: str,
+        status: str = "open",
+        *,
+        note: str | None = None,
+        global_: bool = False,
+        **kwargs: Any,
+    ) -> HarnessEntry:
+        """Upsert a subgoal in the progress ledger.
+
+        The entry id is ``progress:<slug(subgoal)>`` so re-committing the same
+        subgoal updates its status in place while keeping its ledger ``order``.
+        At most ``_MAX_OPEN_PROGRESS`` subgoals may be non-done at once.
+        """
+        if status not in _PROGRESS_STATUSES:
+            raise ValueError(f"invalid progress status {status!r}; expected one of {_PROGRESS_STATUSES}")
+        if not isinstance(subgoal, str) or not subgoal.strip():
+            raise ValueError("subgoal must be a non-empty string")
+        if target := self._global_target(global_, kwargs):
+            return target.commit(subgoal, status, note=note)
+        self._ensure_local_writable()
+        self._sync_from_disk()
+
+        subgoal = subgoal.strip()
+        entry_id = f"{_PROGRESS_ID_PREFIX}{_slug(subgoal, 'subgoal')}"
+        existing = self.entries["memory"].get(entry_id)
+        ledger = self._progress_entries()
+        if status != "done":
+            open_count = sum(
+                1 for entry in ledger if entry.id != entry_id and entry.metadata.get("status") != "done"
+            )
+            if open_count >= _MAX_OPEN_PROGRESS:
+                raise ValueError(
+                    f"progress ledger already holds {_MAX_OPEN_PROGRESS} non-done subgoals; "
+                    f"mark one done first with rlm.harness.commit('<subgoal>', 'done') "
+                    f"(or delete it) before adding {subgoal!r}"
+                )
+
+        if existing is not None and isinstance(existing.metadata.get("order"), int):
+            order = int(existing.metadata["order"])
+        else:
+            order = max((_progress_order(entry) for entry in ledger if _progress_order(entry) < (1 << 30)), default=-1) + 1
+        metadata = dict(existing.metadata) if existing is not None else {}
+        metadata.update({"bpe": "progress", "status": status, "order": order, "updated_turn": _now()})
+
+        if note is not None:
+            content = note
+        elif existing is not None and existing.content not in _PROGRESS_STATUSES:
+            # Preserve a previously supplied note on a status-only update.
+            content = existing.content
+        else:
+            content = status
+        return self._upsert(
+            "memory",
+            subgoal,
+            content,
+            id=entry_id,
+            path=_PROGRESS_PATH if existing is None else None,
+            metadata=metadata,
+            source="agent",
+        )
+
+    def progress(
+        self, *, include_done: bool = True, global_: bool = False, **kwargs: Any
+    ) -> list[HarnessEntry]:
+        """Return progress-ledger entries ordered by their ledger ``order``."""
+        if target := self._global_target(global_, kwargs):
+            return target.progress(include_done=include_done)
+        self._sync_from_disk()
+        return self._progress_entries(include_done=include_done)
+
+    def plan(self, *, global_: bool = False, **kwargs: Any) -> str:
+        """Render the progress ledger as a compact PLAN block.
+
+        Markers: ``[x]`` done, ``[>]`` active, ``[ ]`` open, ``[!]`` blocked.
+        """
+        entries = self.progress(global_=global_, **kwargs)
+        lines = ["# PLAN"]
+        if not entries:
+            lines.append("(no subgoals committed yet; use rlm.harness.commit('<subgoal>', 'open'))")
+            return "\n".join(lines)
+        done = sum(1 for entry in entries if entry.metadata.get("status") == "done")
+        lines[0] = f"# PLAN ({done}/{len(entries)} done)"
+        for entry in entries:
+            status = str(entry.metadata.get("status", "open"))
+            marker = _PROGRESS_MARKERS.get(status, "[ ]")
+            line = f"{marker} {entry.title}"
+            note = entry.content.strip().replace("\n", " ")
+            if note and note != status:
+                if len(note) > 120:
+                    note = f"{note[:117]}..."
+                line = f"{line} - {note}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # recall (B2 / P2): pull-style retrieval of Experience entries.
+    # ------------------------------------------------------------------
+
+    def recall(
+        self,
+        query: str,
+        *,
+        kind: str | None = None,
+        limit: int = _DEFAULT_RECALL_LIMIT,
+        global_: bool = False,
+        **kwargs: Any,
+    ) -> list[HarnessEntry]:
+        """Return the top ``limit`` entries relevant to ``query``.
+
+        Relevance is Jaccard similarity over lowercase word tokens of
+        ``title + content + path``. Progress-ledger entries are excluded. Each
+        returned entry's ``metadata["usage_count"]`` is incremented and saved so
+        later selection can favour lessons that actually get pulled.
+        """
+        if target := self._global_target(global_, kwargs):
+            return target.recall(query, kind=kind, limit=limit)
+        self._sync_from_disk()
+        kinds: list[HarnessKind] = [kind] if kind else list(_KINDS)  # type: ignore[list-item]
+        for current_kind in kinds:
+            if current_kind not in self.entries:
+                raise ValueError(f"unknown harness kind {current_kind!r}; expected one of {_KINDS}")
+        query_tokens = _tokens(query or "")
+        if not query_tokens or limit <= 0:
+            return []
+
+        scored: list[tuple[float, HarnessEntry]] = []
+        for current_kind in kinds:
+            for entry in self.entries[current_kind].values():
+                if entry.metadata.get("bpe") == "progress":
+                    continue
+                similarity = _jaccard(query_tokens, _tokens(f"{entry.title} {entry.content} {entry.path}"))
+                if similarity > 0:
+                    scored.append((similarity, entry))
+        if not scored:
+            return []
+        scored.sort(key=lambda item: (-item[0], item[1].kind, item[1].path, item[1].id))
+        hits = [entry for _, entry in scored[:limit]]
+        for entry in hits:
+            count = entry.metadata.get("usage_count")
+            entry.metadata["usage_count"] = (count if isinstance(count, int) and not isinstance(count, bool) else 0) + 1
+        # usage_count is bookkeeping, not an edit: version/updated_at stay untouched.
+        if self._local_write_error is None:
+            self.save()
+        return hits
+
     def overview(self, *, max_entries_per_kind: int = 20, global_: bool = False, **kwargs: Any) -> str:
         if target := self._global_target(global_, kwargs):
             return target.overview(max_entries_per_kind=max_entries_per_kind)
@@ -815,6 +1006,7 @@ __all__ = [
     "HarnessKind",
     "HarnessScope",
     "HarnessState",
+    "ProgressStatus",
     "RefinementEvent",
     "get_harness_state",
 ]

@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
+import { type KernelEnvPolicy, resolveKernelEnvPolicy } from "./kernel/kernel-env.js";
 
 const RECENT_MODELS_LIMIT = 20;
 export const DEFAULT_IDLE_EVICTION_MINUTES = 90;
@@ -40,6 +41,24 @@ export const DEFAULT_KERNEL_CELL_TIMEOUT_MS = 30 * 60_000;
 export interface KernelSettings {
 	/** Wall-clock cap per ipython cell in ms. 0 disables. Default 30 minutes. `EVOPI_KERNEL_CELL_TIMEOUT_MS` overrides. */
 	cellTimeoutMs?: number;
+	/**
+	 * Host env filtering for the kernel subprocess (A2). `denylist` (default) withholds only
+	 * evopi's own provider credentials; `allowlist` passes only a fixed safe set (PATH, HOME, locale,
+	 * TERM, temp dirs, XDG_ and EVOPI_ prefixes, proxy and CA vars, Python tooling) plus `envAllow`.
+	 * `EVOPI_KERNEL_ENV_POLICY` overrides.
+	 */
+	envPolicy?: KernelEnvPolicy;
+	/** Extra env names passed in allowlist mode. A trailing `*` matches a prefix (`MYCO_*`). */
+	envAllow?: string[];
+}
+
+export type PermissionGateModeSetting = "block" | "warn" | "off";
+
+export interface PermissionGateSettings {
+	/** Gate behavior; `EVOPI_PERMISSION_GATE` overrides. Default `block`. */
+	mode?: PermissionGateModeSetting;
+	/** Regex sources (JS syntax); a shell command matching any of them bypasses the gate. */
+	allow?: string[];
 }
 
 export interface HarnessSettings {
@@ -172,6 +191,7 @@ export interface Settings {
 	evo?: EvoSettings; // evo-layer (grounded-refine) toggle; default off (prime stock behavior)
 	harness?: HarnessSettings; // harness injection selection; default lexicographic (prime stock)
 	kernel?: KernelSettings;
+	permissionGate?: PermissionGateSettings; // intent-layer gate mode + regex whitelist; default block, no whitelist
 	agentTraces?: AgentTracesSettings;
 	telemetry?: TelemetrySettings;
 	branchSummary?: BranchSummarySettings;
@@ -965,6 +985,38 @@ export class SettingsManager {
 		if (typeof configured === "number" && Number.isFinite(configured) && configured >= 0)
 			return Math.floor(configured);
 		return DEFAULT_KERNEL_CELL_TIMEOUT_MS;
+	}
+
+	/**
+	 * Kernel env filtering policy (A2). `EVOPI_KERNEL_ENV_POLICY` (allowlist|denylist)
+	 * beats `kernel.envPolicy`; default denylist (byte-identical to the pre-A2 kernel env).
+	 * `allow` is `kernel.envAllow` with non-string entries dropped.
+	 */
+	getKernelEnvPolicy(): { policy: KernelEnvPolicy; allow: string[] } {
+		const configured = this.settings.kernel?.envPolicy;
+		const policy = resolveKernelEnvPolicy(
+			process.env,
+			configured === "allowlist" || configured === "denylist" ? configured : undefined,
+		);
+		const allow = this.settings.kernel?.envAllow;
+		return {
+			policy,
+			allow: Array.isArray(allow) ? allow.filter((name): name is string => typeof name === "string") : [],
+		};
+	}
+
+	/**
+	 * Intent-layer permission gate settings (A3). `mode` is returned only when valid
+	 * (the gate applies `EVOPI_PERMISSION_GATE` precedence and the `block` default);
+	 * `allow` keeps string entries only. Unset → `{ allow: [] }`.
+	 */
+	getPermissionGateSettings(): { mode?: PermissionGateModeSetting; allow: string[] } {
+		const mode = this.settings.permissionGate?.mode;
+		const allow = this.settings.permissionGate?.allow;
+		return {
+			mode: mode === "block" || mode === "warn" || mode === "off" ? mode : undefined,
+			allow: Array.isArray(allow) ? allow.filter((source): source is string => typeof source === "string") : [],
+		};
 	}
 
 	getAutoRefineSettings(): { enabled: boolean; turnInterval: number; compact: boolean; cooldownMs: number } {

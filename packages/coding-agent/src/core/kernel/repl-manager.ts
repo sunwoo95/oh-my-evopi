@@ -6,7 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 import { v4 as uuid } from "uuid";
 import { reapKernelOrphanProcesses, recordOrphanProcessState } from "../orphan-process-journal.js";
 import { ensureKernelPython } from "./bootstrap.js";
-import { buildKernelEnv, KERNEL_INHERIT_SECRETS_ENV } from "./kernel-env.js";
+import { buildKernelEnv, describeWithheldKernelEnv, type KernelEnvPolicy } from "./kernel-env.js";
 import {
 	AGENT_MESSAGE_DISPLAY_MIME,
 	ATTACHMENT_DISPLAY_MIME,
@@ -137,13 +137,23 @@ function asReasonArray(value: unknown): { name: string; reason: string }[] {
 	});
 }
 
+/** Kernel-env filtering knobs (A2) layered on the shared manager options; mirror `inheritSecrets`. */
+export interface ReplKernelManagerOptions extends KernelManagerOptions {
+	/** `kernel.envPolicy`; `EVOPI_KERNEL_ENV_POLICY` still overrides. Default denylist. */
+	envPolicy?: KernelEnvPolicy;
+	/** `kernel.envAllow`: extra names (or `PREFIX*`) passed in allowlist mode. */
+	envAllow?: readonly string[];
+}
+
 export class ReplKernelManager {
 	private readonly options: Pick<
-		KernelManagerOptions,
+		ReplKernelManagerOptions,
 		| "python"
 		| "cwd"
 		| "env"
 		| "inheritSecrets"
+		| "envPolicy"
+		| "envAllow"
 		| "sessionId"
 		| "hostHandlers"
 		| "pythonSkills"
@@ -195,12 +205,14 @@ export class ReplKernelManager {
 	private rebootstrapPromise?: Promise<boolean>;
 	private teardownInFlight = 0;
 
-	constructor(options: KernelManagerOptions) {
+	constructor(options: ReplKernelManagerOptions) {
 		this.options = {
 			python: options.python,
 			cwd: options.cwd,
 			env: options.env,
 			inheritSecrets: options.inheritSecrets,
+			envPolicy: options.envPolicy,
+			envAllow: options.envAllow,
 			sessionId: options.sessionId,
 			hostHandlers: options.hostHandlers,
 			pythonSkills: options.pythonSkills,
@@ -275,12 +287,12 @@ export class ReplKernelManager {
 		const kernelEnv = buildKernelEnv(process.env, {
 			overrides: { ...this.options.env, EVOPI_KERNEL_OWNER_PID: String(process.pid) },
 			inheritSecrets: this.options.inheritSecrets,
+			policy: this.options.envPolicy,
+			allow: this.options.envAllow,
 		});
-		if (kernelEnv.withheld.length > 0) {
-			this.appendKernelDiagnostic(
-				`withheld ${kernelEnv.withheld.length} provider credential env var(s) from the kernel ` +
-					`(${kernelEnv.withheld.join(", ")}); set ${KERNEL_INHERIT_SECRETS_ENV}=1 to pass them through`,
-			);
+		const withheldDiagnostic = describeWithheldKernelEnv(kernelEnv);
+		if (withheldDiagnostic !== undefined) {
+			this.appendKernelDiagnostic(withheldDiagnostic);
 		}
 		const child = spawn(python, ["-m", "rlm.repl"], {
 			cwd: this.options.cwd,

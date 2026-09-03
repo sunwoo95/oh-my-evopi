@@ -113,14 +113,48 @@ evopi --offline
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `kernel.cellTimeoutMs` | number | `1800000` (30 min) | Wall-clock cap per `ipython` cell. On expiry the kernel is interrupted; a cell that ignores the interrupt (e.g. `SIG_IGN`) gets its kernel discarded and the next cell boots a fresh one restored from the last snapshot. `0` disables the cap. |
+| `kernel.envPolicy` | `"denylist"` \| `"allowlist"` | `"denylist"` | How the host environment is filtered before the kernel subprocess is spawned. `denylist` withholds only evopi's own provider credentials (see `EVOPI_KERNEL_INHERIT_SECRETS`). `allowlist` passes only a fixed safe set — `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `PWD`, `TZ`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `COLORTERM`, `TMPDIR`/`TMP`/`TEMP`, `XDG_*`, `EVOPI_*` (minus `EVOPI_API_KEY_POOL_*`), `VIRTUAL_ENV`, `PYTHON*`, `UV_*`, `PIP_*`, CA bundles (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`), `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (either case) — plus `kernel.envAllow`, so unknown `*_API_KEY`/`*_TOKEN` variables never reach model-authored code. Provider credentials stay withheld in both modes unless `EVOPI_KERNEL_INHERIT_SECRETS=1`. Withheld names are listed in the kernel diagnostics tail (capped at 12, then `+N more`). |
+| `kernel.envAllow` | string[] | `[]` | Extra environment names passed in `allowlist` mode, e.g. `["SERPER_API_KEY", "MYCO_*"]`. A trailing `*` matches a prefix. Ignored under `denylist`. |
+
+```json
+{
+  "kernel": {
+    "envPolicy": "allowlist",
+    "envAllow": ["SERPER_API_KEY", "GH_TOKEN", "MYCO_*"]
+  }
+}
+```
 
 Related environment variables (override settings):
 
 | Variable | Effect |
 |----------|--------|
 | `EVOPI_KERNEL_CELL_TIMEOUT_MS` | Per-cell cap in ms; `0` or `off` disables. Beats `kernel.cellTimeoutMs`. |
-| `EVOPI_KERNEL_INHERIT_SECRETS` | `1` passes the host's LLM-provider credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `EVOPI_API_KEY_POOL_*`, …) into the kernel. By default they are withheld — model-authored code and everything `bash()` spawns cannot read them. Project-facing credentials (`GH_TOKEN`, AWS IAM/profile, `GOOGLE_APPLICATION_CREDENTIALS`, `SERPER_API_KEY`) are always inherited. |
-| `EVOPI_PERMISSION_GATE` | `block` (default), `warn`, or `off`. The intent-layer gate inspects `bash` commands and `ipython` cells that reach a shell (`bash(...)`, `!cmd`, `os.system`/`subprocess`) for destructive patterns; `block` prompts in the TUI and refuses when there is no UI. |
+| `EVOPI_KERNEL_INHERIT_SECRETS` | `1` passes the host's LLM-provider credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `EVOPI_API_KEY_POOL_*`, …) into the kernel. By default they are withheld — model-authored code and everything `bash()` spawns cannot read them. Project-facing credentials (`GH_TOKEN`, AWS IAM/profile, `GOOGLE_APPLICATION_CREDENTIALS`, `SERPER_API_KEY`) are always inherited under the default `denylist` policy. |
+| `EVOPI_KERNEL_ENV_POLICY` | `allowlist` or `denylist`. Beats `kernel.envPolicy`. |
+
+### Permission gate
+
+The intent-layer gate inspects `bash` commands and `ipython` cells that reach a shell (`bash(...)`, `!cmd`, `os.system`/`subprocess`) for destructive patterns, and modifications of protected paths (`.env`, `.git/`, `~/.ssh`, key files, …). Recursive `rm` is judged per target: `rm -rf ./dist`, `rm -rf node_modules`, `cd build && rm -rf out` and absolute paths under the session cwd pass; `/`, `~`/`$HOME`, a bare `*` or `/*`, `..` traversal that leaves the cwd, and absolute paths outside the cwd are flagged (`--no-preserve-root` and `sudo` always are).
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `permissionGate.mode` | `"block"` \| `"warn"` \| `"off"` | `"block"` | `block` prompts in the TUI and refuses when there is no UI; `warn` only notifies; `off` disables the gate (unattended eval). |
+| `permissionGate.allow` | string[] | `[]` | Regex sources (JavaScript syntax). A command matching any of them bypasses the gate entirely. Invalid entries are ignored with a one-time warning. Project `.evopi/agent/settings.json` replaces (does not append to) the global list. |
+
+```json
+{
+  "permissionGate": {
+    "allow": ["^rm -rf /scratch/", "^docker system prune"]
+  }
+}
+```
+
+Every gate decision (`allowed-by-whitelist`, `warned`, `blocked`, `confirmed-by-user`, `denied-by-user`) is appended to the session log as a `permission_gate` entry with the hazard kind, tool name, mode and the first 16 hex characters of the command's SHA-256 — never the command text.
+
+| Variable | Effect |
+|----------|--------|
+| `EVOPI_PERMISSION_GATE` | `block`, `warn`, or `off`. Beats `permissionGate.mode`. |
 
 ### Compaction
 

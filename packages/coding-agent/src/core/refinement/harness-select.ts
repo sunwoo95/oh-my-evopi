@@ -35,6 +35,14 @@ export interface MmrHarnessSelectorOptions {
 }
 
 const DEFAULT_LAMBDA = 0.7;
+/**
+ * B2 (recall pull): `metadata.usage_count` is incremented by the kernel's
+ * `rlm.harness.recall()` each time an entry is pulled. Frequently recalled
+ * lessons earn a small relevance bonus (≤ 0.2) so they survive the per-kind
+ * injection limit; the cap keeps a single hot entry from pinning itself.
+ */
+const USAGE_BONUS_PER_HIT = 0.02;
+const USAGE_BONUS_MAX_HITS = 10;
 
 function entryText(entry: HarnessEntry): string {
 	return `${entry.title} ${entry.content}`;
@@ -52,6 +60,18 @@ function recencyScore(entry: HarnessEntry, newestMs: number, nowMs: number): num
 	return Math.max(0.01, 2 ** (-ageMs / halfLifeMs));
 }
 
+/** `min(usage_count, 10) * 0.02`; non-numeric or negative counts contribute nothing. */
+export function usageBonus(entry: HarnessEntry): number {
+	const raw = entry.metadata?.usage_count;
+	if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 0;
+	return Math.min(Math.floor(raw), USAGE_BONUS_MAX_HITS) * USAGE_BONUS_PER_HIT;
+}
+
+/** MMR relevance: recency plus the recall usage bonus, clamped to 1. */
+function relevanceScore(entry: HarnessEntry, newestMs: number, nowMs: number): number {
+	return Math.min(1, recencyScore(entry, newestMs, nowMs) + usageBonus(entry));
+}
+
 export function createMmrHarnessSelector(options: MmrHarnessSelectorOptions = {}): HarnessEntrySelector {
 	const lambda = options.lambda ?? DEFAULT_LAMBDA;
 	const now = options.now ?? Date.now;
@@ -67,7 +87,7 @@ export function createMmrHarnessSelector(options: MmrHarnessSelectorOptions = {}
 
 		const items = entries.map((entry) => ({
 			content: entryText(entry),
-			score: recencyScore(entry, newestMs, nowMs),
+			score: relevanceScore(entry, newestMs, nowMs),
 			entry,
 		}));
 

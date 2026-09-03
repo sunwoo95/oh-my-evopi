@@ -17,6 +17,7 @@ import {
 	type KernelSentAgentMessage,
 	ReplKernelManager,
 } from "../kernel/index.js";
+import type { KernelEnvPolicy } from "../kernel/kernel-env.js";
 import { manifestPathIn, type RestoreResult, snapshotPathIn } from "../kernel/state-snapshot.js";
 import type { PythonSkillRuntimeInfo } from "../skills.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
@@ -280,6 +281,10 @@ export interface IpythonToolOptions {
 	shellPath?: string;
 	/** Wall-clock cap per cell (ms); 0/undefined = none. See ExecuteOptions.timeoutMs. */
 	cellTimeoutMs?: number;
+	/** `kernel.envPolicy` (A2): denylist (default) or allowlist for the kernel subprocess env. */
+	envPolicy?: KernelEnvPolicy;
+	/** `kernel.envAllow`: extra names (or `PREFIX*`) passed through in allowlist mode. */
+	envAllow?: readonly string[];
 	sessionId?: string;
 	/** Typed host request handlers for the kernel↔host bridge (rlm.run, goal.*, …). */
 	hostHandlers?: HostRequestHandlers;
@@ -469,6 +474,8 @@ export class IpythonKernelProvisioner {
 					...(shellPath ? { EVOPI_BASH_SHELL: shellPath } : {}),
 					...(commandPrefix ? { EVOPI_BASH_COMMAND_PREFIX: commandPrefix } : {}),
 				},
+				envPolicy: this.options?.envPolicy,
+				envAllow: this.options?.envAllow,
 				sessionId: this.options?.sessionId,
 				hostHandlers: this.options?.hostHandlers,
 				pythonSkills: this.options?.pythonSkills,
