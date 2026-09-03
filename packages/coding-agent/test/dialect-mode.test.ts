@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Api, AssistantMessage, Context, Model } from "@evopi/pi-ai";
-import { AssistantMessageEventStream } from "@evopi/pi-ai";
+import { createAssistantMessageEventStream } from "@evopi/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { applyOwnedDialectContext, resolveOwnedDialect, wrapOwnedDialectStream } from "../src/core/dialect-mode.js";
@@ -186,7 +186,7 @@ describe("wrapOwnedDialectStream", () => {
 	}
 
 	it("re-materializes hermes in-band text as native toolcall events (real pi-ai stream objects)", async () => {
-		const inner = new AssistantMessageEventStream();
+		const inner = createAssistantMessageEventStream();
 		const wrapped = wrapOwnedDialectStream(inner, TOOLS, "hermes");
 
 		const message = partial();
@@ -214,7 +214,7 @@ describe("wrapOwnedDialectStream", () => {
 	});
 
 	it("passes plain text through unchanged", async () => {
-		const inner = new AssistantMessageEventStream();
+		const inner = createAssistantMessageEventStream();
 		const wrapped = wrapOwnedDialectStream(inner, TOOLS, "hermes");
 
 		const message = partial();
@@ -237,7 +237,7 @@ describe("wrapOwnedDialectStream", () => {
 	});
 
 	it("aborts the provider on fabricated tool responses but still delivers the parsed toolcall", async () => {
-		const inner = new AssistantMessageEventStream();
+		const inner = createAssistantMessageEventStream();
 		let fabricated = false;
 		const wrapped = wrapOwnedDialectStream(inner, TOOLS, "hermes", () => {
 			fabricated = true;

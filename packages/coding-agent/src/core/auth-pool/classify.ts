@@ -208,3 +208,16 @@ export function isAuthRetryableError(error: unknown): boolean {
 	if (httpStatus === 401 || httpStatus === 403) return true;
 	return isUsageLimitOutcome(httpStatus, message);
 }
+
+/**
+ * Whether a stream-terminal assistant error message names an auth-retryable
+ * failure (B2/M16). pi-ai providers encode failures as a resolved
+ * `AssistantMessage` on an `error` event rather than throwing, so the message
+ * text is the only classification input; `extractHttpStatusFromError` already
+ * parses message-embedded status patterns ("401", "status: 403", …).
+ * `stopReason: "aborted"` is never retryable — a user cancel stays a cancel.
+ */
+export function isAuthRetryableAssistantError(error: { stopReason?: string; errorMessage?: string }): boolean {
+	if (error.stopReason !== "error" || !error.errorMessage) return false;
+	return isAuthRetryableError(new Error(error.errorMessage));
+}

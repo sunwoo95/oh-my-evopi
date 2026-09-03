@@ -11,6 +11,7 @@
 export {
 	extractHttpStatusFromError,
 	isAccountPolicyError,
+	isAuthRetryableAssistantError,
 	isAuthRetryableError,
 	isConcurrencyCapExclusion,
 	isInvalidatedOAuthTokenError,
@@ -22,6 +23,7 @@ export {
 	type OAuthErrorOptions,
 	status,
 } from "./classify.js";
+export { envPoolVarName, getEnvCredentialPool, getEnvPoolKeys, rebindAuthHeader } from "./env.js";
 export {
 	classifyOneshotFailure,
 	extractRetryHintFromText,
@@ -50,3 +52,4 @@ export {
 	seedApiKeyResolver,
 	withAuth,
 } from "./retry.js";
+export { type WithAuthStreamOptions, withAuthStream } from "./stream.js";

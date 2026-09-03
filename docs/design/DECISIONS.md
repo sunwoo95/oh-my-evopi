@@ -790,3 +790,31 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   렌더+히스토리 재인코딩+원본 불변·hermes in-band→네이티브 toolcall 재물질화(실
   pi-ai 스트림 객체로 캐스트 브리지 검증)·fabrication abort) + 회귀 140(model-registry
   ·databricks·dialect 2파일) + tsgo 0 + Bun 게이트 0건.
+
+### M16 Phase 시작 — auth-pool 스트림 배선 트리거·정책 (2026-09-03, B2/R9)
+
+- **트리거**: 수정 계획 B2 (GAP-2 P2b). 풀 소스 = `EVOPI_API_KEY_POOL_<PROVIDER>`
+  env(쉼표 구분; 키=셸 export 원칙 정합), primary = 기존 getApiKeyAndHeaders 결과.
+  env 부재 = 랩핑 자체 생략(오늘의 streamSimple 호출 그대로).
+- **적용 정책**: pi-ai 스트림 계약(시작 후 throw 없음)에 맞춘 `withAuthStream` —
+  omp stream.ts:1470-1592 buffer-until-replay-unsafe 이식: replay-safe=`start`만,
+  경계 전 auth-분류 error 이벤트 → 기존 resolveNextAuthRetryKey a/b/c 상태기계로
+  무음 재시도, 경계 후 통과, 소진 시 마지막 버퍼 재생+터미널 error(pi-ai EventStream
+  은 fail() 부재 — 모든 실패는 error 이벤트 push 종결, 행 방지). Authorization
+  Bearer 계열은 rebindAuthHeader 로 키 치환. 랩 순서: auth 안쪽·dialect 바깥쪽.
+
+#### M16 완료 (2026-09-03)
+
+- `classify.isAuthRetryableAssistantError`(스트림 터미널 메시지 분류) +
+  `stream.withAuthStream`(buffer-until-replay-unsafe; replay-safe=start만; 모든
+  실패 경로 error 이벤트 종결 — 행 방지 backstop 포함) + `env.ts`
+  (EVOPI_API_KEY_POOL_<PROVIDER> 파서 + rebindAuthHeader) + sdk streamFn 배선
+  (pool 부재 시 기존 streamSimple 호출 그대로; 랩 순서 auth 안쪽·dialect 바깥쪽).
+- **정책 실측 확인**: 401 = refresh-same 1회 + 형제 전환 1회(legacyAuthSwitchUsed),
+  403/usage-limit = 직접 로테이션으로 전 풀 순회 — M9 a/b/c 상태기계 그대로 소비.
+  세션스티키: sessionId 존재 시 FNV 해시 시작 인덱스(로드 분산), sdk 는
+  sessionManager.getSessionId() 전달.
+- 검증: auth-pool-stream 11 테스트(무음 로테이션·replay-unsafe 컷오프·403 전 풀
+  순회+dedup·401 1회 전환 정책·비-auth 통과·abort·no-key 무행·분류 테이블·env
+  게이팅·헤더 리바인드) + 회귀(auth-pool 17·dialect-mode 10·oneshot 12·
+  harness-select 6) 53/53, tsgo 0, Bun 게이트 0건.

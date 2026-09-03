@@ -5,6 +5,7 @@ import { getAgentDir } from "../config.js";
 import { AgentSession } from "./agent-session.js";
 import type { AgentSessionCreationOptions } from "./agent-session-services.js";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.js";
+import { createPoolResolver, getEnvCredentialPool, rebindAuthHeader, withAuthStream } from "./auth-pool/index.js";
 import { AuthStorage } from "./auth-storage.js";
 import type { AgentAutonomousConfig } from "./autonomous.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
@@ -306,15 +307,33 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				signal = signal ? AbortSignal.any([signal, fabrication.signal]) : fabrication.signal;
 			}
 
-			let stream = streamSimple(model, llmContext, {
+			const requestOptions = (apiKey: string | undefined, headers: Record<string, string> | undefined) => ({
 				...options,
-				apiKey: auth.apiKey,
+				apiKey,
 				signal,
 				timeoutMs: options?.timeoutMs ?? providerRetrySettings.timeoutMs,
 				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
 				maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
-				headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
+				headers: headers || options?.headers ? { ...headers, ...options?.headers } : undefined,
 			});
+
+			// Credential-pool rotation (B2/M16): only when EVOPI_API_KEY_POOL_<PROVIDER>
+			// is set; otherwise this is exactly the single streamSimple call. Wrap
+			// order: auth rotation inside, dialect projection outside — retries must
+			// buffer/replay raw provider events.
+			const pool = getEnvCredentialPool(model.provider, auth.apiKey);
+			let stream = pool
+				? withAuthStream(
+						createPoolResolver(pool, sessionManager.getSessionId()),
+						(key) =>
+							streamSimple(
+								model,
+								llmContext,
+								requestOptions(key, rebindAuthHeader(auth.headers, auth.apiKey, key)),
+							),
+						{ signal, model },
+					)
+				: streamSimple(model, llmContext, requestOptions(auth.apiKey, auth.headers));
 			if (owned && dialect) {
 				stream = wrapOwnedDialectStream(stream, owned.wireTools, dialect, () => fabrication?.abort());
 			}
