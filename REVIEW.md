@@ -768,3 +768,7 @@ main `005e64a`(범프) ← `0dbf4c3`(라운드 1-11) ← `573bd22`(docs) push, g
 7 타르볼(evopi·ai·core·hashline·mnemopi·natives-loader·tui). 실검증: 라이브 latest.json=v0.10.0(~10s 전파),
 install.sh sha 일치(c3f8fc48…), 격리 prefix `curl … install.sh | sh` → `evopi-0.10.0.tgz: OK` · 195 packages ·
 `evopi --version`=0.10.0, 설치 번들에 EVOPI_KERNEL_INHERIT_SECRETS·KernelCellTimeout·protected-path 게이트 문자열 존재.
+
+## [체크포인트] 2026-09-03 — 재배포 점검 + 후속 계획
+재배포 요청 점검: 트리 clean, main=origin=04d6a94, 라이브 v0.10.0 타르볼에 docs·CHANGELOG 포함 → 신규 릴리스 불필요.
+CI(ci.yml)에 shellcheck 설치 추가로 check:shell 강제. 후속 계획 docs/design/NEXT-STEPS.md (트랙 A~E, 실행 순서).
