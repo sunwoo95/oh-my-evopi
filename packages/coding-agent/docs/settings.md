@@ -112,7 +112,7 @@ evopi --offline
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `kernel.cellTimeoutMs` | number | `1800000` (30 min) | Wall-clock cap per `ipython` cell. On expiry the kernel is interrupted; a cell that ignores the interrupt (e.g. `SIG_IGN`) gets its kernel discarded and the next cell boots a fresh one restored from the last snapshot. `0` disables the cap. |
+| `kernel.cellTimeoutMs` | number | `1800000` (30 min) | Wall-clock cap per `ipython` cell. On expiry the kernel is interrupted; a cell that ignores the interrupt (e.g. `SIG_IGN`) gets its kernel discarded and the next cell boots a fresh one restored from the last snapshot. `0` disables the cap. Changeable at runtime with `/kernel timeout` (below). |
 | `kernel.envPolicy` | `"denylist"` \| `"allowlist"` | `"denylist"` | How the host environment is filtered before the kernel subprocess is spawned. `denylist` withholds only evopi's own provider credentials (see `EVOPI_KERNEL_INHERIT_SECRETS`). `allowlist` passes only a fixed safe set — `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `PWD`, `TZ`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `COLORTERM`, `TMPDIR`/`TMP`/`TEMP`, `XDG_*`, `EVOPI_*` (minus `EVOPI_API_KEY_POOL_*`), `VIRTUAL_ENV`, `PYTHON*`, `UV_*`, `PIP_*`, CA bundles (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`), `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (either case) — plus `kernel.envAllow`, so unknown `*_API_KEY`/`*_TOKEN` variables never reach model-authored code. Provider credentials stay withheld in both modes unless `EVOPI_KERNEL_INHERIT_SECRETS=1`. Withheld names are listed in the kernel diagnostics tail (capped at 12, then `+N more`). |
 | `kernel.envAllow` | string[] | `[]` | Extra environment names passed in `allowlist` mode, e.g. `["SERPER_API_KEY", "MYCO_*"]`. A trailing `*` matches a prefix. Ignored under `denylist`. |
 
@@ -125,36 +125,118 @@ evopi --offline
 }
 ```
 
+#### `/kernel timeout` — cap UX
+
+Bare `/kernel` (or `/kernel timeout`) prints the effective cap for the next cell, where it comes
+from (`chat` > `env` > `settings` > `default`) and, when a cell is running, its elapsed time.
+`/kernel timeout <ms|Ns|Nm|Nh|off> [--global]` sets the cap immediately without touching the
+running turn or the transcript:
+
+- The value is recorded in the session log (like `/rlm-max-depth`) and restored on resume, so a
+  `/kernel timeout off` from an earlier turn is still in force after `evopi --resume`; the bare
+  `/kernel` status line shows it as `(chat)`.
+- It also re-arms the cell that is running right now. Once that cell's cap has already fired
+  (the interrupt is irreversible) the reply says so and the value applies to the next cell.
+- `--global` additionally writes `kernel.cellTimeoutMs` to `~/.evopi/agent/settings.json`. If
+  `EVOPI_KERNEL_CELL_TIMEOUT_MS` is set the command warns that the env var will shadow that saved
+  default in new sessions (a chat override always wins in the current session).
+
+While a cell runs, evopi warns once at 80% of its cap: a `[cell has used 80% of its 30m cap — 6m
+left]` line is streamed into the tool output and the TUI shows a warning toast. A cell that
+crossed 80% gets one trailing `[note: this cell used N% of its ... cap ...]` line in the tool
+result so the model can split or background the work; a cell that hits the cap fails with
+`KernelCellTimeout` and the TUI shows a warning (clean interrupt) or an error (kernel had to be
+restarted). Cells that finish below 80%, and every session with the cap disabled, produce exactly
+the same tool output as before.
+
 Related environment variables (override settings):
 
 | Variable | Effect |
 |----------|--------|
-| `EVOPI_KERNEL_CELL_TIMEOUT_MS` | Per-cell cap in ms; `0` or `off` disables. Beats `kernel.cellTimeoutMs`. |
+| `EVOPI_KERNEL_CELL_TIMEOUT_MS` | Per-cell cap in ms; `0` or `off` disables. Beats `kernel.cellTimeoutMs`; a `/kernel timeout` chat override beats both. |
 | `EVOPI_KERNEL_INHERIT_SECRETS` | `1` passes the host's LLM-provider credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `EVOPI_API_KEY_POOL_*`, …) into the kernel. By default they are withheld — model-authored code and everything `bash()` spawns cannot read them. Project-facing credentials (`GH_TOKEN`, AWS IAM/profile, `GOOGLE_APPLICATION_CREDENTIALS`, `SERPER_API_KEY`) are always inherited under the default `denylist` policy. |
 | `EVOPI_KERNEL_ENV_POLICY` | `allowlist` or `denylist`. Beats `kernel.envPolicy`. |
 
-### Permission gate
+### Edit checkpoints (`/rewind`)
 
-The intent-layer gate inspects `bash` commands and `ipython` cells that reach a shell (`bash(...)`, `!cmd`, `os.system`/`subprocess`) for destructive patterns, and modifications of protected paths (`.env`, `.git/`, `~/.ssh`, key files, …). Recursive `rm` is judged per target: `rm -rf ./dist`, `rm -rf node_modules`, `cd build && rm -rf out` and absolute paths under the session cwd pass; `/`, `~`/`$HOME`, a bare `*` or `/*`, `..` traversal that leaves the cwd, and absolute paths outside the cwd are flagged (`--no-preserve-root` and `sudo` always are).
+Files edited through the kernel `edit` skill (`await edit(...)` and `!edit --path ...`) and the
+`hashline_edit` tool are snapshotted before each write so `/rewind` can restore them. Checkpoints
+live in `session-artifacts/<session-id>/edit-checkpoints/` and are deleted with the session.
+Non-persistent sessions (`--no-session`) never checkpoint. See `rlm-runtime.md` for the store
+layout, drift rules and the `/rewind` forms.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `permissionGate.mode` | `"block"` \| `"warn"` \| `"off"` | `"block"` | `block` prompts in the TUI and refuses when there is no UI; `warn` only notifies; `off` disables the gate (unattended eval). |
-| `permissionGate.allow` | string[] | `[]` | Regex sources (JavaScript syntax). A command matching any of them bypasses the gate entirely. Invalid entries are ignored with a one-time warning. Project `.evopi/agent/settings.json` replaces (does not append to) the global list. |
+| `editCheckpoint.enabled` | boolean | `true` | Snapshot before-images for persistent sessions. `false` leaves the kernel env and the edit skill's behaviour byte-identical to earlier releases. |
+| `editCheckpoint.maxRecords` | number | `200` | Checkpoint records kept per session; oldest are pruned first. |
+| `editCheckpoint.maxTotalBytes` | number | `67108864` (64 MiB) | Cap on unique before-image bytes per session; oldest records are pruned until it fits. |
+| `editCheckpoint.maxFileBytes` | number | `4194304` (4 MiB) | Files larger than this are recorded as `skipped` (no before-image) and cannot be rewound. |
 
 ```json
 {
-  "permissionGate": {
-    "allow": ["^rm -rf /scratch/", "^docker system prune"]
+  "editCheckpoint": {
+    "enabled": true,
+    "maxRecords": 200,
+    "maxTotalBytes": 67108864,
+    "maxFileBytes": 4194304
   }
 }
 ```
 
-Every gate decision (`allowed-by-whitelist`, `warned`, `blocked`, `confirmed-by-user`, `denied-by-user`) is appended to the session log as a `permission_gate` entry with the hazard kind, tool name, mode and the first 16 hex characters of the command's SHA-256 — never the command text.
+| Variable | Effect |
+|----------|--------|
+| `EVOPI_EDIT_CHECKPOINT` | `off`/`0`/`false` disables, `on`/`1`/`true` enables. Beats `editCheckpoint.enabled`. |
+| `EVOPI_EDIT_CHECKPOINT_DIR` | Set **by evopi on the kernel process** (not by users) when checkpoints are active; the edit skill snapshots only when it is present. |
+| `EVOPI_EDIT_CHECKPOINT_MAX_FILE_BYTES` | Set by evopi on the kernel alongside the directory; mirrors `editCheckpoint.maxFileBytes`. |
+
+### Permission gate and approval tiers
+
+The intent-layer gate classifies every tool call into an approval **tier** and, on top of that, detects **hazards**:
+
+- `read` — an `ipython` cell that only computes or reads (`print(open(p).read())`, comparisons, imports).
+- `write` — a cell that mutates a path (`open(p, "w"/"a"/"x")`, `Path.write_text`, `shutil.rmtree`/`move`/`copy*`, `os.remove`/`rename`/`chmod`, pathlib `unlink`/`rename`/`touch`, …), the kernel `edit` skill in both forms (`await edit(...)` and a plain `!edit --path …` shell line), and the `edit` / `hashline_edit` tools.
+- `exec` — `bash`, an `ipython` cell that reaches a shell (`bash(...)`, `!cmd`, `os.system`/`subprocess`/`pexpect`; a `!edit` line that carries unquoted `; & | < >`, `$(…)` or backticks counts as exec too), and any extension/MCP tool that declares nothing (override with `approval.toolTiers`).
+- **hazard** — destructive shell patterns and modifications of protected paths (`.env`, `.git/`, `~/.ssh`, key files, …), on whichever tier the call has. Recursive `rm` is judged per target: `rm -rf ./dist`, `rm -rf node_modules`, `cd build && rm -rf out` and absolute paths under the session cwd pass; `/`, `~`/`$HOME`, a bare `*` or `/*`, `..` traversal that leaves the cwd, and absolute paths outside the cwd are flagged (`--no-preserve-root` and `sudo` always are). For `edit` / `hashline_edit` the target path(s) are checked.
+
+Each axis has a **policy**: `auto` (run silently), `warn` (run and notify), `ask` (confirm in the TUI; refuse when there is no UI, e.g. `--print` or a non-TTY stdin), or `deny` (refuse even with a UI). When a call trips a hazard, the stricter of the tier policy and the hazard policy applies. The classification is regex-based and is the *intent* layer only — the OS sandbox (enforcement layer) remains the final arbiter.
+
+| Preset | read | write | exec | hazard | Equivalent to |
+|--------|------|-------|------|--------|---------------|
+| `dev` (default) | auto | auto | auto | ask | legacy `block` — byte-identical behaviour |
+| `strict` | auto | ask | ask | ask | — |
+| `yolo` | auto | auto | auto | auto | legacy `off` — the gate does nothing |
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `approval.preset` | `"dev"` \| `"strict"` \| `"yolo"` | `"dev"` | Base policy table (see above). |
+| `approval.read` / `approval.write` / `approval.exec` / `approval.hazard` | `"auto"` \| `"warn"` \| `"ask"` \| `"deny"` | from preset | Per-axis override applied on top of the preset. |
+| `approval.toolTiers` | `Record<string, "read" \| "write" \| "exec">` | `{}` | Tier for extension/MCP tools by tool name; unlisted tools are `exec`. |
+| `permissionGate.mode` | `"block"` \| `"warn"` \| `"off"` | — | Legacy. `off` → the `yolo` preset (whole gate off); `block` → `hazard: ask`; `warn` → `hazard: warn` — a hazard-axis overlay only, tier policies are untouched. `approval.*` beats it. |
+| `permissionGate.allow` | string[] | `[]` | Regex sources (JavaScript syntax) matched against the call text (bash command, whole ipython cell, `edit <path>`, `hashline_edit <paths>`, `<tool> <json input>`). A match auto-approves the call — tier prompts and hazard prompts alike. Invalid entries are ignored with a one-time warning. Project `.evopi/agent/settings.json` replaces (does not append to) the global list. |
+
+```json
+{
+  "approval": {
+    "preset": "strict",
+    "exec": "warn",
+    "toolTiers": { "mcp__fs__read_file": "read" }
+  },
+  "permissionGate": {
+    "allow": ["^!npm (test|run) ", "^rm -rf /scratch/", "^docker system prune"]
+  }
+}
+```
+
+Precedence, highest first: `EVOPI_APPROVAL` → `EVOPI_PERMISSION_GATE` → `approval.read/write/exec/hazard` → `approval.preset` → `permissionGate.mode` → `dev`. With nothing set the gate behaves exactly as the former `block` mode: ordinary reads, writes and shell calls run, hazards prompt (or are refused without a UI). `strict` without a UI refuses every write/exec call with a reason that names the remedies (`approval.<tier>: auto`, `approval.preset: dev`, `EVOPI_APPROVAL=dev`, or an allow regex).
+
+At `session_start` a non-legacy configuration (any tier not `auto`, or `hazard: deny`) is announced as `Approval preset <name>: read=… write=… exec=… hazard=…` (`custom` when it matches no preset); the sandbox probe notices are unchanged and still report `mode=block|warn` (the legacy mode the configuration maps to).
+
+Every non-`auto` decision (`allowed-by-whitelist`, `warned`, `blocked`, `confirmed-by-user`, `denied-by-user`, `denied-by-policy`) is appended to the session log as a `permission_gate` entry with `decision`, `tier`, `policy` (the effective policy), `hazardKind` (only when a hazard was detected), `tool`, `mode` (legacy mapping: `off` / `warn` / `block`) and `commandSha256` — the first 16 hex characters of the call text's SHA-256, never the text itself. `tier` and `policy` were added in NS-D5; `auto` decisions are never recorded, so the default log volume is unchanged.
 
 | Variable | Effect |
 |----------|--------|
-| `EVOPI_PERMISSION_GATE` | `block`, `warn`, or `off`. Beats `permissionGate.mode`. |
+| `EVOPI_APPROVAL` | A preset name (`dev`, `strict`, `yolo`) and/or comma-separated `read|write|exec|hazard=auto|warn|ask|deny` pairs, e.g. `strict`, `write=ask,exec=ask`, `strict,hazard=warn`. A preset replaces the whole table, pairs overlay it. Invalid tokens are ignored with a one-time warning. Beats everything else. |
+| `EVOPI_PERMISSION_GATE` | Legacy `block`, `warn`, or `off`, mapped like `permissionGate.mode` (`off` → `yolo`; `block`/`warn` → hazard overlay only). Beats `approval.*` and `permissionGate.mode`; loses to `EVOPI_APPROVAL`. |
 
 ### Compaction
 
@@ -384,3 +466,12 @@ Project settings (`.evopi/agent/settings.json`) override global settings. Nested
   "compaction": { "enabled": true, "reserveTokens": 8192 }
 }
 ```
+
+## Steering and abort (D2 emulation)
+
+evopi delivers queued steering messages into the running agent loop at the next turn boundary and auto-resumes preserved queue items after Esc/Ctrl+C (both since 0.12.0). Both defaults can be reverted:
+
+| Variable | Effect |
+|----------|--------|
+| `EVOPI_STEER_MODE` | `inject` (default) or `restart`. `restart` keeps the pre-0.12 stop-and-restart steering delivery and disables the steering skip/L2/L3 tool signals. |
+| `EVOPI_STEER_AUTO_RESUME` | `on` (default) or `off`. `off` keeps manual resume of preserved queue items after Esc/Ctrl+C (next submit or queue edit). |

@@ -46,11 +46,29 @@ export {
 } from "./core/compaction/index.js";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.js";
 export {
+	APPROVAL_PRESETS,
+	type ApprovalAxis,
+	type ApprovalConfig,
+	type ApprovalResolution,
+	applyLegacyMode,
+	classifyToolCall,
 	createPermissionGateExtension,
+	describeApprovalConfig,
 	extractShellCommand,
 	isDangerousCommand,
+	isGateDisabled,
+	legacyModeOf,
+	type ParsedApprovalEnv,
+	type PermissionGateDecision,
+	type PermissionGateHazard,
+	type PermissionGateLogEntry,
 	type PermissionGateMode,
+	type PermissionGateSettingsView,
+	parseApprovalEnv,
 	permissionGateExtension,
+	presetNameOf,
+	resolveApprovalConfig,
+	type ToolCallClassification,
 } from "./core/extensions/builtin/permission-gate.js";
 // Extension system
 export type {

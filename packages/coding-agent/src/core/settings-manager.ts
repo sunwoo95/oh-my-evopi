@@ -69,6 +69,60 @@ export interface HarnessSettings {
 	// Character budget per entry kind for injected harness text (cost-aware
 	// injection, D8 backlog concept ③). Only honored on the mmr path.
 	charBudget?: number;
+	/**
+	 * Per-kind capacity of the continual harness store (B4 consolidation, EvoHarness-RL
+	 * Kmax). Unset follows the evo gate (evo on → 80); `<= 0` = unlimited.
+	 * `EVOPI_HARNESS_CAP_PER_KIND` overrides.
+	 */
+	capPerKind?: number;
+}
+
+/** Approval tier policy (NS-D5): auto = run, warn = run + notify, ask = confirm (block without UI), deny = never. */
+export type ApprovalPolicy = "auto" | "warn" | "ask" | "deny";
+export type ApprovalTier = "read" | "write" | "exec";
+export type ApprovalPreset = "dev" | "strict" | "yolo";
+
+export interface ApprovalSettings {
+	/** Preset: dev (= legacy `block`: hazards ask, tiers auto), strict (write/exec ask), yolo (= legacy `off`). Default dev. */
+	preset?: ApprovalPreset;
+	/** Per-tier overrides applied on top of the preset. */
+	read?: ApprovalPolicy;
+	write?: ApprovalPolicy;
+	exec?: ApprovalPolicy;
+	/** Policy for hazard detections (dangerous command / protected-path write), independent of tier. */
+	hazard?: ApprovalPolicy;
+	/** Tier overrides for extension/MCP tools that declare none (default exec). */
+	toolTiers?: Record<string, ApprovalTier>;
+}
+
+export type SubagentWorktreeMode = "off" | "opt-in" | "always";
+
+export interface SubagentWorktreeSettings {
+	/** off (default, byte-identical) | opt-in (`isolated=True`) | always. `EVOPI_SUBAGENT_WORKTREE` overrides. */
+	mode?: SubagentWorktreeMode;
+	/** Base directory; default ~/.evopi/agent/worktrees. `EVOPI_WORKTREE_DIR` overrides. */
+	base?: string;
+	/** patch-apply (default): capture the child delta and apply it to the parent tree; none: keep the patch file only. */
+	merge?: "patch-apply" | "none";
+	/** Copy the parent's uncommitted changes into the worktree (default true). */
+	seedDirty?: boolean;
+	/** Refuse to seed above this many bytes of dirty/untracked content (default 1 GiB). */
+	maxSeedBytes?: number;
+}
+
+export interface SubagentSettings {
+	worktree?: SubagentWorktreeSettings;
+}
+
+export interface EditCheckpointSettings {
+	/** Default true for persistent sessions (safety feature, opt-out). `EVOPI_EDIT_CHECKPOINT=off` overrides. */
+	enabled?: boolean;
+	/** Max checkpoint records per session (default 200). */
+	maxRecords?: number;
+	/** Max total before-image bytes per session (default 64 MiB). */
+	maxTotalBytes?: number;
+	/** Max single file size snapshotted (default 4 MiB; larger files are recorded as skipped). */
+	maxFileBytes?: number;
 }
 
 export interface ProviderRetrySettings {
@@ -192,6 +246,9 @@ export interface Settings {
 	harness?: HarnessSettings; // harness injection selection; default lexicographic (prime stock)
 	kernel?: KernelSettings;
 	permissionGate?: PermissionGateSettings; // intent-layer gate mode + regex whitelist; default block, no whitelist
+	approval?: ApprovalSettings; // NS-D5 approval tiers; default preset dev (= legacy block)
+	subagent?: SubagentSettings; // NS-D1 subagent worktree isolation; default off
+	editCheckpoint?: EditCheckpointSettings; // NS-D4 edit checkpoints for /rewind; default on for persistent sessions
 	agentTraces?: AgentTracesSettings;
 	telemetry?: TelemetrySettings;
 	branchSummary?: BranchSummarySettings;
@@ -987,6 +1044,19 @@ export class SettingsManager {
 		return DEFAULT_KERNEL_CELL_TIMEOUT_MS;
 	}
 
+	/** `/kernel timeout <v> --global` (A4): persist `kernel.cellTimeoutMs` in the global settings file. 0 disables. */
+	setKernelCellTimeoutMs(timeoutMs: number): void {
+		if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) {
+			throw new Error("Kernel cell timeout must be a non-negative integer number of milliseconds");
+		}
+		if (!this.globalSettings.kernel) {
+			this.globalSettings.kernel = {};
+		}
+		this.globalSettings.kernel.cellTimeoutMs = timeoutMs;
+		this.markModified("kernel", "cellTimeoutMs");
+		this.save();
+	}
+
 	/**
 	 * Kernel env filtering policy (A2). `EVOPI_KERNEL_ENV_POLICY` (allowlist|denylist)
 	 * beats `kernel.envPolicy`; default denylist (byte-identical to the pre-A2 kernel env).
@@ -1017,6 +1087,103 @@ export class SettingsManager {
 			mode: mode === "block" || mode === "warn" || mode === "off" ? mode : undefined,
 			allow: Array.isArray(allow) ? allow.filter((source): source is string => typeof source === "string") : [],
 		};
+	}
+
+	/**
+	 * Approval tiers (NS-D5). Returns the raw, validated settings; the gate resolves the
+	 * preset, the legacy `permissionGate.mode` / `EVOPI_PERMISSION_GATE` mapping, and the defaults.
+	 */
+	getApprovalSettings(): ApprovalSettings {
+		const raw = this.settings.approval ?? {};
+		const policy = (value: unknown): ApprovalPolicy | undefined =>
+			value === "auto" || value === "warn" || value === "ask" || value === "deny" ? value : undefined;
+		const preset = raw.preset;
+		const toolTiers: Record<string, ApprovalTier> = {};
+		for (const [name, tier] of Object.entries(raw.toolTiers ?? {})) {
+			if (tier === "read" || tier === "write" || tier === "exec") toolTiers[name] = tier;
+		}
+		return {
+			preset: preset === "dev" || preset === "strict" || preset === "yolo" ? preset : undefined,
+			read: policy(raw.read),
+			write: policy(raw.write),
+			exec: policy(raw.exec),
+			hazard: policy(raw.hazard),
+			toolTiers,
+		};
+	}
+
+	/**
+	 * Subagent worktree isolation (NS-D1). `EVOPI_SUBAGENT_WORKTREE` (off|opt-in|always)
+	 * beats `subagent.worktree.mode`; `EVOPI_WORKTREE_DIR` beats `subagent.worktree.base`.
+	 * Default mode off (byte-identical spawn path).
+	 */
+	getSubagentWorktreeSettings(): {
+		mode: SubagentWorktreeMode;
+		base?: string;
+		merge: "patch-apply" | "none";
+		seedDirty: boolean;
+		maxSeedBytes: number;
+	} {
+		const raw = this.settings.subagent?.worktree ?? {};
+		const envMode = (process.env.EVOPI_SUBAGENT_WORKTREE ?? "").trim().toLowerCase();
+		const mode: SubagentWorktreeMode =
+			envMode === "off" || envMode === "opt-in" || envMode === "always"
+				? envMode
+				: raw.mode === "off" || raw.mode === "opt-in" || raw.mode === "always"
+					? raw.mode
+					: "off";
+		const envBase = (process.env.EVOPI_WORKTREE_DIR ?? "").trim();
+		const maxSeedBytes = raw.maxSeedBytes;
+		return {
+			mode,
+			base: envBase || (typeof raw.base === "string" && raw.base.trim() ? raw.base : undefined),
+			merge: raw.merge === "none" ? "none" : "patch-apply",
+			seedDirty: raw.seedDirty !== false,
+			maxSeedBytes:
+				typeof maxSeedBytes === "number" && Number.isFinite(maxSeedBytes) && maxSeedBytes > 0
+					? Math.floor(maxSeedBytes)
+					: 1024 * 1024 * 1024,
+		};
+	}
+
+	/**
+	 * Edit checkpoints for /rewind (NS-D4). `EVOPI_EDIT_CHECKPOINT` ("off"/"0"/"false" disables,
+	 * "on"/"1"/"true" enables) beats `editCheckpoint.enabled`; default enabled.
+	 */
+	getEditCheckpointSettings(): { enabled: boolean; maxRecords: number; maxTotalBytes: number; maxFileBytes: number } {
+		const raw = this.settings.editCheckpoint ?? {};
+		const env = (process.env.EVOPI_EDIT_CHECKPOINT ?? "").trim().toLowerCase();
+		const enabled =
+			env === "off" || env === "0" || env === "false"
+				? false
+				: env === "on" || env === "1" || env === "true"
+					? true
+					: raw.enabled !== false;
+		const positive = (value: unknown, fallback: number): number =>
+			typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+		return {
+			enabled,
+			maxRecords: positive(raw.maxRecords, 200),
+			maxTotalBytes: positive(raw.maxTotalBytes, 64 * 1024 * 1024),
+			maxFileBytes: positive(raw.maxFileBytes, 4 * 1024 * 1024),
+		};
+	}
+
+	/**
+	 * Per-kind harness capacity (B4). `EVOPI_HARNESS_CAP_PER_KIND` beats `harness.capPerKind`;
+	 * unset follows the evo gate (evo on → 80, otherwise undefined = no cap). `<= 0` → undefined.
+	 */
+	getHarnessCapPerKind(): number | undefined {
+		const env = (process.env.EVOPI_HARNESS_CAP_PER_KIND ?? "").trim();
+		let configured: number | undefined;
+		if (/^-?\d+$/.test(env)) configured = Number(env);
+		else if (
+			typeof this.settings.harness?.capPerKind === "number" &&
+			Number.isFinite(this.settings.harness.capPerKind)
+		)
+			configured = this.settings.harness.capPerKind;
+		if (configured !== undefined) return configured > 0 ? Math.floor(configured) : undefined;
+		return this.resolveEvoEnabled() === true ? 80 : undefined;
 	}
 
 	getAutoRefineSettings(): { enabled: boolean; turnInterval: number; compact: boolean; cooldownMs: number } {
