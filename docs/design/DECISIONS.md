@@ -767,3 +767,26 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   releasePackages에 mnemopi 추가(타르볼 의존 404 방지, Phase 1 선례).
 - 검증: harness-select 6 테스트(다양화·최근성·예산·결정성·seam off 바이트 동일·
   overflow), tsgo exit 0, Bun 게이트 0건.
+
+### M15 Phase 시작 — dialect owned-mode 배선 트리거·정책 (2026-09-03, B1/R8)
+
+- **트리거**: 수정 계획 B1 (GAP-2 P2a). 활성 = models.json `dialect` 필드(11방언 |
+  "auto") + `EVOPI_DIALECT` env("off" 비활성). 주입점 = sdk.ts streamFn 클로저 —
+  packages/agent(prime 골격) 무수정 (agent-loop.ts:488-499 가 llmContext 를 streamFn
+  에 위임, 툴 실행은 AgentContext.tools 별도 참조 — 실측).
+- **적용 정책**: off 시 바이트 동일(반환 스트림 reference equality 게이트). owned
+  활성 시 ① tools 제거 ② renderInbandToolPrompt ③ encodeInbandToolHistory ④
+  wrapInbandToolStream 래핑, fabrication AbortController 는 provider signal 에만
+  병합(omp agent-loop.ts:1602-1773 의미론). dialect compat 스트림 ↔ pi-ai 스트림은
+  캐스트 브리지(런타임 형상 호환 — pi-ai provider 는 compat 전용 image_end 미방출).
+
+#### M15 완료 (2026-09-03)
+
+- 배럴 export(preferredDialect/FALLBACK_DIALECT) + models.json 3스키마 `dialect`
+  필드(11방언|auto) + registry modelDialects 저장(storeModelHeaders 미러) +
+  `dialect-mode.ts`(resolve/apply/wrap, compat 캐스트 브리지) + sdk streamFn 배선
+  (fabrication AbortController → provider signal 한정).
+- 검증: dialect-mode 10 테스트(auto 휴리스틱·env 우선/off·미설정 undefined·카탈로그
+  렌더+히스토리 재인코딩+원본 불변·hermes in-band→네이티브 toolcall 재물질화(실
+  pi-ai 스트림 객체로 캐스트 브리지 검증)·fabrication abort) + 회귀 140(model-registry
+  ·databricks·dialect 2파일) + tsgo 0 + Bun 게이트 0건.

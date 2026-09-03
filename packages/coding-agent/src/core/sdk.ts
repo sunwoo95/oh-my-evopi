@@ -8,6 +8,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.js";
 import { AuthStorage } from "./auth-storage.js";
 import type { AgentAutonomousConfig } from "./autonomous.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
+import { applyOwnedDialectContext, resolveOwnedDialect, wrapOwnedDialectStream } from "./dialect-mode.js";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.js";
 import { McpManager } from "./mcp/mcp-manager.js";
 import { convertToLlm } from "./messages.js";
@@ -289,14 +290,35 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				throw new Error(auth.error);
 			}
 			const providerRetrySettings = settingsManager.getProviderRetrySettings();
-			return streamSimple(model, context, {
+
+			// Owned in-band dialect mode (B1/M15): opt-in via models.json `dialect`
+			// or EVOPI_DIALECT. Off (the default) leaves this closure byte-identical.
+			const dialect = resolveOwnedDialect(model, modelRegistry);
+			const owned = dialect ? applyOwnedDialectContext(context, dialect) : undefined;
+			const llmContext = owned?.context ?? context;
+			// The fabrication controller aborts the *provider* request only — the
+			// projector has already pushed `done` with the parsed toolcalls, so the
+			// loop's own signal stays untouched and tool execution proceeds.
+			let fabrication: AbortController | undefined;
+			let signal = options?.signal;
+			if (owned) {
+				fabrication = new AbortController();
+				signal = signal ? AbortSignal.any([signal, fabrication.signal]) : fabrication.signal;
+			}
+
+			let stream = streamSimple(model, llmContext, {
 				...options,
 				apiKey: auth.apiKey,
+				signal,
 				timeoutMs: options?.timeoutMs ?? providerRetrySettings.timeoutMs,
 				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
 				maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
 				headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
 			});
+			if (owned && dialect) {
+				stream = wrapOwnedDialectStream(stream, owned.wireTools, dialect, () => fabrication?.abort());
+			}
+			return stream;
 		},
 		onPayload: async (payload, _model) => {
 			const runner = extensionRunnerRef.current;

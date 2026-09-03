@@ -148,6 +148,21 @@ const ProviderCompatSchema = Type.Union([
 	AnthropicMessagesCompatSchema,
 ]);
 
+const ModelDialectSchema = Type.Union([
+	Type.Literal("glm"),
+	Type.Literal("hermes"),
+	Type.Literal("kimi"),
+	Type.Literal("xml"),
+	Type.Literal("anthropic"),
+	Type.Literal("deepseek"),
+	Type.Literal("harmony"),
+	Type.Literal("qwen3"),
+	Type.Literal("gemini"),
+	Type.Literal("gemma"),
+	Type.Literal("minimax"),
+	Type.Literal("auto"),
+]);
+
 // Most fields are optional with sensible defaults for local models (Ollama, LM Studio, etc.)
 const ModelDefinitionSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
@@ -169,6 +184,8 @@ const ModelDefinitionSchema = Type.Object({
 	maxTokens: Type.Optional(Type.Number()),
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 	compat: Type.Optional(ProviderCompatSchema),
+	// Owned in-band tool-call dialect (B1/M15). "auto" resolves via preferredDialect(model.id).
+	dialect: Type.Optional(ModelDialectSchema),
 });
 
 const ModelOverrideSchema = Type.Object({
@@ -188,6 +205,7 @@ const ModelOverrideSchema = Type.Object({
 	maxTokens: Type.Optional(Type.Number()),
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 	compat: Type.Optional(ProviderCompatSchema),
+	dialect: Type.Optional(ModelDialectSchema),
 });
 
 type ModelOverride = Static<typeof ModelOverrideSchema>;
@@ -200,6 +218,7 @@ const ProviderConfigSchema = Type.Object({
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 	compat: Type.Optional(ProviderCompatSchema),
 	authHeader: Type.Optional(Type.Boolean()),
+	dialect: Type.Optional(ModelDialectSchema),
 	models: Type.Optional(Type.Array(ModelDefinitionSchema)),
 	modelOverrides: Type.Optional(Type.Record(Type.String(), ModelOverrideSchema)),
 });
@@ -447,6 +466,8 @@ export class ModelRegistry {
 	private staleProviderRequestAuthSources: Map<string, AuthSourceToken[]> = new Map();
 	private lastProviderAuthSourceTokens: Map<string, AuthSourceToken> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
+	/** provider:modelId -> owned in-band dialect from models.json (B1/M15). */
+	private modelDialects: Map<string, string> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
 	private authorizedPrivatePrimeInferenceModelIds = new Set<string>();
 	private authorizedPrivatePrimeInferenceTeamId: string | undefined;
@@ -485,6 +506,7 @@ export class ModelRegistry {
 	refresh(): void {
 		this.providerRequestConfigs.clear();
 		this.modelRequestHeaders.clear();
+		this.modelDialects.clear();
 		this.lastProviderAuthSourceTokens.clear();
 		this.authorizedPrivatePrimeInferenceModelIds.clear();
 		this.authorizedPrivatePrimeInferenceTeamId = undefined;
@@ -653,6 +675,7 @@ export class ModelRegistry {
 					modelOverrides.set(providerName, new Map(Object.entries(providerConfig.modelOverrides)));
 					for (const [modelId, modelOverride] of Object.entries(providerConfig.modelOverrides)) {
 						this.storeModelHeaders(providerName, modelId, modelOverride.headers);
+						this.storeModelDialect(providerName, modelId, modelOverride.dialect ?? providerConfig.dialect);
 					}
 				}
 			}
@@ -742,6 +765,7 @@ export class ModelRegistry {
 
 				const compat = mergeCompat(providerConfig.compat, modelDef.compat);
 				this.storeModelHeaders(providerName, modelDef.id, modelDef.headers);
+				this.storeModelDialect(providerName, modelDef.id, modelDef.dialect ?? providerConfig.dialect);
 
 				const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 				models.push({
@@ -1330,6 +1354,21 @@ export class ModelRegistry {
 			return;
 		}
 		this.modelRequestHeaders.set(key, headers);
+	}
+
+	/** Mirror of storeModelHeaders for the models.json `dialect` field (B1/M15). */
+	private storeModelDialect(providerName: string, modelId: string, dialect?: string): void {
+		const key = this.getModelRequestKey(providerName, modelId);
+		if (!dialect) {
+			this.modelDialects.delete(key);
+			return;
+		}
+		this.modelDialects.set(key, dialect);
+	}
+
+	/** Owned in-band dialect configured for a model ("auto" not yet resolved). */
+	getModelDialect(model: Model<Api>): string | undefined {
+		return this.modelDialects.get(this.getModelRequestKey(model.provider, model.id));
 	}
 
 	/**

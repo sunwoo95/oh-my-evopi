@@ -1,5 +1,8 @@
 export * from "./catalog.js";
 export * from "./coercion.js";
+// Model-id → dialect heuristic, needed by owned-mode consumers (B1/M15) to
+// resolve `dialect: "auto"` in models.json.
+export { FALLBACK_DIALECT, preferredDialect } from "./compat/identity.js";
 export * from "./demotion.js";
 export * from "./examples.js";
 export * from "./factory.js";
