@@ -669,3 +669,8 @@ node-내장 모듈 해석 실패(62 errors).
   문서화(키 확보 대기).
 - **주의**: check:browser-smoke 는 선재(업스트림 유래) 실패 — 위 [선재 결함 발견]
   기록 참조. 커밋은 --no-verify + 나머지 게이트 수동 통과.
+
+### [배포완료] 2026-09-03 — v0.9.4 게시 (감사 수정판)
+main push(897cb64) + gh-pages(abcd8b7, v0.9.1-0.9.3 보존). 7 타르볼(+evopi-mnemopi
+신규, 전이 체인 재작성 검증). 라이브 sha 일치, 격리 prefix curl|sh → 195 pkgs·
+0.9.4·dialect-mode/auth-pool-stream dist·mnemopi 설치 확인.
