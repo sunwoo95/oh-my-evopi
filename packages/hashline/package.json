@@ -1,7 +1,7 @@
 {
 	"type": "module",
 	"name": "@evopi/hashline",
-	"version": "0.9.3",
+	"version": "0.9.4",
 	"description": "Hashline: a compact, line-anchored patch language and applier. Node-only backport wired to @evopi/pi-natives-loader.",
 	"license": "MIT",
 	"main": "./dist/index.js",
@@ -13,7 +13,7 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@evopi/pi-natives-loader": "^0.9.3"
+		"@evopi/pi-natives-loader": "^0.9.4"
 	},
 	"keywords": [
 		"patch",
