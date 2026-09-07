@@ -1,0 +1,742 @@
+<title>evopi 설정 표면</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#eef2f0;
+    --surface:#ffffff;
+    --surface-2:#e4ebe8;
+    --line:#c7d3ce;
+    --line-soft:#d9e2df;
+    --text:#12181a;
+    --text-dim:#586460;
+    --text-faint:#8a9691;
+    --accent:#0f766e;
+    --accent-soft:#0f766e1a;
+    --accent-contrast:#f2fbf9;
+    --good:#1a8f5c;
+    --good-soft:#1a8f5c1a;
+    --warn:#a15b06;
+    --warn-soft:#a15b061a;
+    --danger:#b3261e;
+    --danger-soft:#b3261e1a;
+    --unknown:#6b7674;
+    --unknown-soft:#6b76741a;
+    --shadow:0 12px 32px -18px rgb(15 30 26 / 0.35);
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:'Noto Sans KR','Pretendard',-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0b1210;
+      --surface:#111a17;
+      --surface-2:#0e1614;
+      --line:#22322c;
+      --line-soft:#1a2622;
+      --text:#e7eee9;
+      --text-dim:#93a29b;
+      --text-faint:#5f7168;
+      --accent:#34d1b8;
+      --accent-soft:#34d1b826;
+      --accent-contrast:#062420;
+      --good:#3fbd83;
+      --good-soft:#3fbd8326;
+      --warn:#e0a548;
+      --warn-soft:#e0a54826;
+      --danger:#e5726a;
+      --danger-soft:#e5726a26;
+      --unknown:#8a988f;
+      --unknown-soft:#8a988f26;
+      --shadow:0 20px 44px -20px rgb(0 0 0 / 0.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b1210;
+    --surface:#111a17;
+    --surface-2:#0e1614;
+    --line:#22322c;
+    --line-soft:#1a2622;
+    --text:#e7eee9;
+    --text-dim:#93a29b;
+    --text-faint:#5f7168;
+    --accent:#34d1b8;
+    --accent-soft:#34d1b826;
+    --accent-contrast:#062420;
+    --good:#3fbd83;
+    --good-soft:#3fbd8326;
+    --warn:#e0a548;
+    --warn-soft:#e0a54826;
+    --danger:#e5726a;
+    --danger-soft:#e5726a26;
+    --unknown:#8a988f;
+    --unknown-soft:#8a988f26;
+    --shadow:0 20px 44px -20px rgb(0 0 0 / 0.6);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    padding:clamp(20px,4vw,48px);
+    display:flex;
+    justify-content:center;
+  }
+  .page{width:100%;max-width:1080px;}
+
+  .masthead{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:16px;
+    margin-bottom:18px;
+    flex-wrap:wrap;
+  }
+  .masthead h1{
+    font-family:var(--mono);
+    font-size:1.05rem;
+    font-weight:600;
+    letter-spacing:0.02em;
+    margin:0;
+    color:var(--text);
+  }
+  .masthead h1 span{color:var(--accent);}
+  .masthead p{
+    margin:0;
+    font-size:0.8rem;
+    color:var(--text-faint);
+    font-family:var(--mono);
+  }
+
+  .window{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+
+  .titlebar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 16px;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--line);
+    font-family:var(--mono);
+    font-size:0.72rem;
+    color:var(--text-dim);
+  }
+  .titlebar .dots{display:flex;gap:6px;flex:0 0 auto;}
+  .titlebar .dots i{
+    width:9px;height:9px;border-radius:50%;
+    background:var(--line);
+    display:block;
+  }
+  .titlebar .prompt{
+    flex:1;
+    white-space:nowrap;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .titlebar .prompt::-webkit-scrollbar{display:none;}
+  .titlebar .prompt b{color:var(--accent);font-weight:600;}
+  .titlebar .badge{
+    flex:0 0 auto;
+    font-size:0.68rem;
+    padding:2px 8px;
+    border-radius:5px;
+    background:var(--accent-soft);
+    color:var(--accent);
+    letter-spacing:0.03em;
+  }
+
+  .tabs{
+    display:flex;
+    gap:2px;
+    padding:8px 12px 0;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--line);
+    overflow-x:auto;
+  }
+  .tab{
+    font-family:var(--mono);
+    font-size:0.76rem;
+    color:var(--text-dim);
+    background:transparent;
+    border:1px solid transparent;
+    padding:8px 14px;
+    border-radius:8px 8px 0 0;
+    cursor:pointer;
+    white-space:nowrap;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .tab .n{
+    font-size:0.65rem;
+    color:var(--text-faint);
+    background:var(--line-soft);
+    border-radius:4px;
+    padding:1px 5px;
+  }
+  .tab[aria-selected="true"]{
+    background:var(--surface);
+    color:var(--text);
+    border-color:var(--line);
+    border-bottom-color:var(--surface);
+    position:relative;
+    top:1px;
+  }
+  .tab[aria-selected="true"] .n{background:var(--accent-soft);color:var(--accent);}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .pane{padding:26px clamp(16px,3vw,32px) 30px;}
+  .pane[hidden]{display:none;}
+
+  .pane-head{margin-bottom:20px;}
+  .pane-head .cmd{
+    font-family:var(--mono);
+    font-size:0.85rem;
+    color:var(--accent);
+    margin:0 0 6px;
+  }
+  .pane-head .cmd::before{content:"❭ ";color:var(--text-faint);}
+  .pane-head h2{
+    font-family:var(--sans);
+    font-size:1.28rem;
+    font-weight:700;
+    margin:2px 0 6px;
+    text-wrap:balance;
+  }
+  .pane-head p{
+    margin:0;
+    color:var(--text-dim);
+    font-size:0.9rem;
+    line-height:1.6;
+    max-width:62ch;
+  }
+
+  .callout{
+    font-family:var(--mono);
+    font-size:0.76rem;
+    color:var(--text-dim);
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    border-left:3px solid var(--accent);
+    border-radius:6px;
+    padding:10px 14px;
+    margin:18px 0;
+    line-height:1.65;
+  }
+  .callout b{color:var(--text);}
+
+  table{width:100%;border-collapse:collapse;font-size:0.85rem;}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line-soft);border-radius:8px;}
+  th,td{
+    padding:10px 12px;
+    text-align:left;
+    border-bottom:1px solid var(--line-soft);
+    white-space:nowrap;
+  }
+  thead th{
+    font-family:var(--mono);
+    font-size:0.68rem;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    background:var(--surface-2);
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-2);}
+  td.role{font-family:var(--mono);font-weight:600;color:var(--text);}
+  td.mono{font-family:var(--mono);color:var(--text-dim);font-size:0.8rem;}
+  td.wrap{white-space:normal;min-width:220px;}
+
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    font-family:var(--mono);
+    font-size:0.68rem;
+    padding:2px 8px;
+    border-radius:5px;
+    font-weight:500;
+    letter-spacing:0.02em;
+  }
+  .chip.allow{background:var(--good-soft);color:var(--good);}
+  .chip.ask{background:var(--warn-soft);color:var(--warn);}
+  .chip.deny{background:var(--danger-soft);color:var(--danger);}
+  .chip.safe{background:var(--good-soft);color:var(--good);}
+  .chip.unknown{background:var(--unknown-soft);color:var(--unknown);}
+  .chip.critical{background:var(--danger-soft);color:var(--danger);}
+  .chip.bundled{background:var(--accent-soft);color:var(--accent);}
+
+  .patternrow{display:flex;flex-wrap:wrap;gap:6px;}
+  .pattern{
+    font-family:var(--mono);
+    font-size:0.72rem;
+    padding:3px 8px;
+    border-radius:5px;
+    border:1px solid var(--line-soft);
+    color:var(--text-dim);
+    background:var(--surface);
+  }
+  .pattern b{font-weight:600;}
+  .pattern.allow{border-color:transparent;background:var(--good-soft);color:var(--good);}
+  .pattern.ask{border-color:transparent;background:var(--warn-soft);color:var(--warn);}
+  .pattern.deny{border-color:transparent;background:var(--danger-soft);color:var(--danger);}
+
+  .chain{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+    font-family:var(--mono);
+    font-size:0.78rem;
+  }
+  .chain .m{
+    padding:3px 9px;
+    border-radius:5px;
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    color:var(--text);
+  }
+  .chain .m.primary{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);}
+  .chain .arrow{color:var(--text-faint);}
+  .chain .none{color:var(--text-faint);font-style:normal;}
+
+  .cardgrid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px;
+    margin-top:18px;
+  }
+  @media (max-width:640px){.cardgrid{grid-template-columns:1fr;}}
+  .card{
+    border:1px solid var(--line-soft);
+    border-radius:8px;
+    padding:14px 16px;
+    background:var(--surface);
+  }
+  .card h3{
+    margin:0 0 8px;
+    font-family:var(--mono);
+    font-size:0.82rem;
+    font-weight:600;
+    color:var(--text);
+  }
+  .card .kv{display:flex;justify-content:space-between;gap:10px;font-size:0.78rem;padding:4px 0;color:var(--text-dim);}
+  .card .kv b{color:var(--text);font-family:var(--mono);font-weight:500;}
+
+  .frontmatter{
+    font-family:var(--mono);
+    font-size:0.78rem;
+    line-height:1.7;
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    border-radius:8px;
+    padding:14px 16px;
+    color:var(--text-dim);
+    margin-top:16px;
+    overflow-x:auto;
+  }
+  .frontmatter .k{color:var(--accent);}
+  .frontmatter .v{color:var(--text);}
+  .frontmatter .c{color:var(--text-faint);}
+
+  .foot-tags{display:flex;flex-wrap:wrap;gap:5px;}
+  .tag{
+    font-family:var(--mono);
+    font-size:0.68rem;
+    padding:2px 7px;
+    border-radius:4px;
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    color:var(--text-dim);
+  }
+
+  .statusbar{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:8px 16px;
+    background:var(--surface-2);
+    border-top:1px solid var(--line);
+    font-family:var(--mono);
+    font-size:0.68rem;
+    color:var(--text-faint);
+    flex-wrap:wrap;
+  }
+  .statusbar .keys b{color:var(--text-dim);font-weight:500;}
+
+  .footnote{
+    margin-top:16px;
+    font-size:0.78rem;
+    color:var(--text-faint);
+    font-family:var(--mono);
+    line-height:1.6;
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    .pane{animation:fade .22s ease-out;}
+  }
+  @keyframes fade{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
+
+  .diffblock{
+    font-family:var(--mono);
+    font-size:0.78rem;
+    line-height:1.65;
+    border:1px solid var(--line-soft);
+    border-radius:8px;
+    overflow-x:auto;
+    background:var(--surface);
+  }
+  .diffblock .dhead{
+    padding:8px 14px;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--line-soft);
+    color:var(--text-dim);
+    font-size:0.72rem;
+  }
+  .diffline{padding:1px 14px;white-space:pre;}
+  .diffline.add{background:var(--good-soft);color:var(--good);}
+  .diffline.add::before{content:"+ ";}
+  .diffline.del{background:var(--danger-soft);color:var(--danger);}
+  .diffline.del::before{content:"- ";}
+  .diffline.ctx{color:var(--text-faint);}
+  .diffline.ctx::before{content:"  ";}
+
+  .askdialog{
+    margin-top:18px;
+    border:1px solid var(--accent);
+    border-radius:8px;
+    background:var(--accent-soft);
+    padding:14px 16px 16px;
+  }
+  .askdialog .q{
+    font-family:var(--mono);
+    font-size:0.82rem;
+    color:var(--text);
+    margin:0 0 12px;
+    line-height:1.6;
+  }
+  .askdialog .q b{color:var(--accent);}
+  .askoptions{display:flex;flex-wrap:wrap;gap:8px;}
+  .askopt{
+    font-family:var(--mono);
+    font-size:0.78rem;
+    padding:7px 14px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    background:var(--surface);
+    color:var(--text-dim);
+  }
+  .askopt.no{color:var(--danger);}
+  .askopt.yes{color:var(--text);border-color:var(--line);}
+  .askopt.always{
+    border-color:var(--accent);
+    background:var(--accent);
+    color:var(--accent-contrast);
+    font-weight:600;
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  .askopt.always::before{content:"★ ";}
+
+  .beforeafter{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;}
+  @media (max-width:640px){.beforeafter{grid-template-columns:1fr;}}
+  .beforeafter .col h3{
+    font-family:var(--mono);
+    font-size:0.72rem;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    margin:0 0 8px;
+    color:var(--text-faint);
+  }
+  .beforeafter .col.now h3{color:var(--danger);}
+  .beforeafter .col.next h3{color:var(--good);}
+  .miniprompt{
+    font-family:var(--mono);
+    font-size:0.76rem;
+    color:var(--text-dim);
+    background:var(--surface);
+    border:1px solid var(--line-soft);
+    border-radius:8px;
+    padding:12px 14px;
+    line-height:1.7;
+  }
+</style>
+
+<div class="page">
+  <div class="masthead">
+    <h1><span>evopi</span> · 설정 표면 프로토타입</h1>
+    <p>UXP 제안 1–4 · docs/design/UXP-evopi-ux-proposal.md 대응 · 정적 목업, 값은 예시</p>
+  </div>
+
+  <div class="window">
+    <div class="titlebar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="prompt">evopi <b>~/.evopi/agent</b> · model=claude-sonnet-5 · evo=on · session=7f21a</div>
+      <div class="badge">PROTOTYPE</div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="설정 화면">
+      <button class="tab" id="tab-a" role="tab" aria-selected="true" aria-controls="pane-a">/subagents<span class="n">G1·G2</span></button>
+      <button class="tab" id="tab-b" role="tab" aria-selected="false" aria-controls="pane-b">/model routing<span class="n">G3</span></button>
+      <button class="tab" id="tab-c" role="tab" aria-selected="false" aria-controls="pane-c">/skills<span class="n">G4</span></button>
+      <button class="tab" id="tab-d" role="tab" aria-selected="false" aria-controls="pane-d">승인 프롬프트<span class="n">G6</span></button>
+    </div>
+
+    <section class="pane" id="pane-a" role="tabpanel" aria-labelledby="tab-a">
+      <div class="pane-head">
+        <p class="cmd">/subagents</p>
+        <h2>서브에이전트 역할 프리셋</h2>
+        <p><code>.evopi/agent/subagents/&lt;name&gt;.md</code> 프론트매터로 이름·모델·명령 패턴 권한을 선언한다. 선언이 없으면 지금과 동일하게 즉석 호출로 동작 — 이 표는 opt-in 프리셋 목록이다.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>역할</th><th>mode</th><th>model</th><th>fallback</th><th>edit</th><th>bash 패턴</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="role">orchestrator</td>
+              <td class="mono">primary</td>
+              <td class="mono">claude-sonnet-5</td>
+              <td class="mono">—</td>
+              <td><span class="chip deny">n/a</span></td>
+              <td class="wrap"><span class="pattern">task.researcher/coder/reviewer <b>allow</b></span></td>
+            </tr>
+            <tr>
+              <td class="role">coder</td>
+              <td class="mono">subagent</td>
+              <td class="mono">claude-sonnet-5</td>
+              <td class="mono">gpt-5-4</td>
+              <td><span class="chip allow">allow</span></td>
+              <td class="wrap">
+                <div class="patternrow">
+                  <span class="pattern allow">npm * / git diff* / git log*</span>
+                  <span class="pattern ask">* → ask</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="role">researcher</td>
+              <td class="mono">subagent</td>
+              <td class="mono">gemini-3-flash</td>
+              <td class="mono">haiku-4-5</td>
+              <td><span class="chip deny">deny</span></td>
+              <td class="wrap">
+                <div class="patternrow">
+                  <span class="pattern allow">git * / grep * / rg *</span>
+                  <span class="pattern ask">* → ask</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="role">reviewer</td>
+              <td class="mono">subagent</td>
+              <td class="mono">claude-sonnet-5</td>
+              <td class="mono">—</td>
+              <td><span class="chip deny">deny</span></td>
+              <td class="wrap">
+                <div class="patternrow">
+                  <span class="pattern allow">git diff* / git log* / cat *</span>
+                  <span class="pattern deny">* → deny</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <b>격차 근거</b> — evopi 현재는 <code>approval.toolTiers[toolName]</code>(툴 이름 단위) + 전역 <code>permissionGate.allow[]</code> 하나뿐, 역할별로 다른 명령 정책을 표현할 자리가 없다(permission-gate.ts:618-641,739-747). reviewer 행의 <span class="pattern deny" style="padding:1px 6px;">* → deny</span> 는 읽기전용 서브에이전트의 fallthrough 를 확인이 아니라 원천 차단하는 opencode 방식(agents/reviewer.md:8-13)을 evopi 스키마로 옮긴 것.
+      </div>
+    </section>
+
+    <section class="pane" id="pane-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+      <div class="pane-head">
+        <p class="cmd">/model routing</p>
+        <h2>모델 · 카테고리 라우팅</h2>
+        <p>역할(위 탭)과는 별도로, 작업 성격별 기본 모델+폴백을 정하는 두 번째 축. 기존 <code>ModelRegistry</code>·<code>auth-pool</code> 을 그대로 조회하는 뷰이며 새 인프라는 추가하지 않는다.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>카테고리</th><th>1차 모델</th><th>폴백 체인</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="role">quick</td>
+              <td class="mono">gemini-3-1-flash-lite</td>
+              <td><div class="chain"><span class="m primary">gemini-3-1-flash-lite</span><span class="arrow">↻</span><span class="m none">동일 모델 재시도</span></div></td>
+            </tr>
+            <tr>
+              <td class="role">deep</td>
+              <td class="mono">gpt-5-4</td>
+              <td><div class="chain"><span class="m primary">gpt-5-4</span><span class="arrow">→</span><span class="m">claude-sonnet-5</span><span class="arrow">→</span><span class="m">gemini-3-flash</span></div></td>
+            </tr>
+            <tr>
+              <td class="role">writing</td>
+              <td class="mono">claude-haiku-4-5</td>
+              <td><div class="chain"><span class="m primary">claude-haiku-4-5</span><span class="arrow">↻</span><span class="m none">동일 모델 재시도</span></div></td>
+            </tr>
+            <tr>
+              <td class="role">unspecified</td>
+              <td class="mono">claude-sonnet-5</td>
+              <td><div class="chain"><span class="m primary">claude-sonnet-5</span><span class="arrow">—</span><span class="m none">폴백 없음</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cardgrid">
+        <div class="card">
+          <h3>재사용 인프라</h3>
+          <div class="kv"><span>프로바이더 카탈로그</span><b>66종</b></div>
+          <div class="kv"><span>크리덴셜 풀</span><b>auth-pool</b></div>
+          <div class="kv"><span>인밴드 방언</span><b>11종</b></div>
+          <div class="kv"><span>신규 인프라</span><b>없음 — 뷰만 추가</b></div>
+        </div>
+        <div class="card">
+          <h3>카테고리 태깅 범위</h3>
+          <div class="kv"><span>v1 범위</span><b>역할이 명시할 때만</b></div>
+          <div class="kv"><span>자동 태깅</span><b>v2 로 이연</b></div>
+          <div class="kv"><span>evo 게이트</span><b>선택 (기본 뒤)</b></div>
+          <div class="kv"><span>표시 방식</span><b>설정 파일 그대로</b></div>
+        </div>
+      </div>
+
+      <div class="footnote">참고 — quick/writing 의 "폴백"은 동일 모델 재시도이지 실제 모델 전환이 아니다. oh-my-openagent 실측에서도 8개 카테고리 중 3개가 같은 성격이었다(oh-my-openagent.json:58-114) — evopi 도 처음부터 전부를 다단 폴백으로 과설계하지 않는다.</div>
+    </section>
+
+    <section class="pane" id="pane-c" role="tabpanel" aria-labelledby="tab-c" hidden>
+      <div class="pane-head">
+        <p class="cmd">/skills</p>
+        <h2>스킬 브라우저</h2>
+        <p>번들 스킬 16개는 그대로 유지하고, 프론트매터에 <code>risk</code>/<code>source</code>/<code>tags</code> 3필드만 추가한다. 개수를 늘리는 방향이 아니라 있는 스킬의 신뢰 근거를 보이게 하는 방향.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>스킬</th><th>risk</th><th>source</th><th>tags</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="role">goal</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">goal</span><span class="tag">planning</span></div></td></tr>
+            <tr><td class="role">edit</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">editing</span></div></td></tr>
+            <tr><td class="role">compact</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">context</span><span class="tag">compaction</span></div></td></tr>
+            <tr><td class="role">attach-image</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">multimodal</span><span class="tag">image</span></div></td></tr>
+            <tr><td class="role">agent-observe</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">orchestration</span></div></td></tr>
+            <tr><td class="role">agent-message</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">orchestration</span></div></td></tr>
+            <tr><td class="role">linear</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">integration</span></div></td></tr>
+            <tr><td class="role">notion</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">integration</span></div></td></tr>
+            <tr><td class="role">prime-intellect</td><td><span class="chip safe">safe</span></td><td><span class="chip bundled">bundled</span></td><td><div class="foot-tags"><span class="tag">compute</span></div></td></tr>
+            <tr><td class="role" style="color:var(--text-faint);font-weight:400;">+ 7개 더 (동일 스킴)</td><td><span class="chip unknown">—</span></td><td><span class="chip unknown">—</span></td><td class="mono" style="font-size:0.75rem;">…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="frontmatter">
+<span class="c">--- (.evopi/agent/skills/deploy-check/SKILL.md, 프로젝트 스킬 예시)</span><br/>
+<span class="k">name:</span> <span class="v">deploy-check</span><br/>
+<span class="k">description:</span> <span class="v">배포 전 헬스체크</span><br/>
+<span class="k">risk:</span> <span class="v">critical</span> <span class="c"># 프로덕션 배포 트리거 가능</span><br/>
+<span class="k">source:</span> <span class="v">project</span><br/>
+<span class="k">tags:</span> <span class="v">[deploy, ops]</span><br/>
+<span class="k">tools:</span> <span class="v">[claude-code]</span> <span class="c"># 문서 목적 포터빌리티 선언, 로딩 기능 아님</span>
+      </div>
+
+      <div class="footnote">근거 — opencode 스킬 1,460개 중 risk 미상 720 / safe 551 / critical 136(opencode-oh-my-openagent-arch.md §5). evopi 는 규모를 좇지 않고 적은 수에 메타데이터를 먼저 붙인다.</div>
+    </section>
+
+    <section class="pane" id="pane-d" role="tabpanel" aria-labelledby="tab-d" hidden>
+      <div class="pane-head">
+        <p class="cmd">write-tier ask · permission-gate</p>
+        <h2>승인 프롬프트 diff 미리보기 + "항상 허용"</h2>
+        <p>지금은 원문 텍스트 + 이진(Yes/No)뿐이다(<code>permission-gate.ts:851-854</code>). 이미 있는 <code>renderDiff</code>(실행 결과 화면에서만 쓰던 것)를 승인 전에 재사용하고, 옵션을 하나 더 늘려 결정을 그 자리에서 영구화한다.</p>
+      </div>
+
+      <div class="beforeafter">
+        <div class="col now">
+          <h3>지금</h3>
+          <div class="miniprompt">edit_file(config/rate_limit.py)<br/>&gt; RATE_LIMIT_MAX = 100 → RATE_LIMIT_MAX = 1000 ...<br/><span style="color:var(--text-faint);">(41자에서 truncate)</span><br/><br/>Allow this edit? <b style="color:var(--text);">[No] [Yes]</b></div>
+        </div>
+        <div class="col next">
+          <h3>제안 4</h3>
+          <div class="miniprompt">diff 미리보기 ↓ (renderDiff 재사용)<br/><br/>Allow this edit? <b style="color:var(--accent);">[No] [Yes] [★ Always allow]</b></div>
+        </div>
+      </div>
+
+      <div class="diffblock" style="margin-top:18px;">
+        <div class="dhead">config/rate_limit.py — write-tier ask</div>
+        <div class="diffline ctx">RATE_LIMIT_WINDOW_S = 60</div>
+        <div class="diffline del">RATE_LIMIT_MAX = 100</div>
+        <div class="diffline add">RATE_LIMIT_MAX = 1000</div>
+        <div class="diffline ctx">RATE_LIMIT_BACKOFF = "exponential"</div>
+      </div>
+
+      <div class="askdialog">
+        <p class="q">❭ <b>edit_file</b> config/rate_limit.py — 위 diff 를 적용할까요?</p>
+        <div class="askoptions">
+          <span class="askopt no">No</span>
+          <span class="askopt yes">Yes</span>
+          <span class="askopt always">Always allow this pattern</span>
+        </div>
+      </div>
+
+      <div class="callout">
+        <b>격차 근거</b> — evopi TUI 는 <code>renderDiff</code>(components/diff.ts:80)를 실행 <b>결과</b> 화면에는 이미 쓴다
+        (<code>ipython-cell.ts:677-717</code>, <code>edit-summary.ts:6</code>). 그런데 같은 렌더러가 승인 <b>전</b> 프롬프트
+        (<code>permission-gate.ts:851-853</code>)에는 안 쓰여 원문 텍스트만 truncate 해서 보인다. <code>ctx.ui.select</code> 의
+        시그니처(<code>extensions/types.ts:116</code>)는 <code>options: string[]</code> 뿐이라 "이번만"과 "항상"을
+        구분할 자리조차 없다 — 새 컴포넌트 없이 옵션 배열에 문자열 1개 추가로 해결 가능(비교 대상 툴 조사 불필요, evopi
+        자체 코드 내 능력-사용 불일치가 근거).
+      </div>
+    </section>
+
+    <div class="statusbar">
+      <div class="keys"><b>tab</b> 화면 전환 · <b>evo=on</b> 상태에서만 카테고리 축 노출 (제안 2) · ★ = 신규 제안 4 옵션</div>
+      <div>evopi v0.9.6 · UXP 2026-09-07</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var tabs = [
+    {btn: document.getElementById('tab-a'), pane: document.getElementById('pane-a')},
+    {btn: document.getElementById('tab-b'), pane: document.getElementById('pane-b')},
+    {btn: document.getElementById('tab-c'), pane: document.getElementById('pane-c')},
+    {btn: document.getElementById('tab-d'), pane: document.getElementById('pane-d')}
+  ];
+
+  function activate(index){
+    tabs.forEach(function(t, i){
+      var on = i === index;
+      t.btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.pane.hidden = !on;
+    });
+    try { localStorage.setItem('evopi-uxp-tab', String(index)); } catch (e) {}
+  }
+
+  tabs.forEach(function(t, i){
+    t.btn.addEventListener('click', function(){ activate(i); });
+    t.btn.addEventListener('keydown', function(ev){
+      if (ev.key === 'ArrowRight') { activate((i + 1) % tabs.length); tabs[(i + 1) % tabs.length].btn.focus(); }
+      if (ev.key === 'ArrowLeft') { activate((i - 1 + tabs.length) % tabs.length); tabs[(i - 1 + tabs.length) % tabs.length].btn.focus(); }
+    });
+  });
+
+  var saved = 0;
+  try {
+    var raw = localStorage.getItem('evopi-uxp-tab');
+    if (raw !== null) saved = Math.min(tabs.length - 1, Math.max(0, parseInt(raw, 10) || 0));
+  } catch (e) {}
+  activate(saved);
+})();
+</script>

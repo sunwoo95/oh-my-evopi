@@ -813,3 +813,16 @@ main `bd023dc`(범프) ← `3ba45d1`(트랙 C + 문서) ← `0c89b5f`(트랙 A/B
 ### [배포완료] 2026-09-03 — v0.12.0 → v0.12.1 게시 (태그 경로)
 main `e142139`(Release v0.12.1) ← `8be398c`(데몬 env 수정) ← `5ee5d08`(lockfile 정책) ← `239b853`(Release v0.12.0) ← `887d5e6`…`050d797`(구현 5커밋), 태그 v0.12.0/v0.12.1,
 gh-pages `105e5a0`. 라이브 stable=v0.12.1, 격리 prefix `curl … install.sh | sh` → 0.12.1; strict 첫 실행 뒤 env 없는 실행이 dev 로 동작(누출 수정 확인), strict 재지정 시 차단.
+
+- [체크포인트] 2026-09-07 — UXP Phase 완료: opencode+oh-my-openagent 실측 분석, 6자 비교 매트릭스, UX 격차 분석
+  (G1-G5), UXP 제안서(제안 1-3), 3화면 HTML 프로토타입까지 작성 완료. 상세는 DECISIONS.md 「UXP Phase 종료」.
+- [리뷰] 2026-09-07 — Artifact 발행은 이 세션의 `ANTHROPIC_AUTH_TOKEN` 인증 방식 때문에 거부됨(claude.ai 로그인
+  필요). 프로토타입은 `docs/design/uxp-prototype.html` 로컬 파일로 대체 보관 — 발행은 로그인 세션에서 재시도 필요.
+- git 커밋/푸시는 사용자 지시로 이번 사이클 제외 — 위 산출물 전부 워킹트리에 미커밋 상태로 대기.
+
+- [체크포인트] 2026-09-07 — UXP 확장: 사용자 지시("cli상에 UX 개선도 포함시켜")로 CLI 상호작용 UX 격차 G6(승인
+  프롬프트 diff 미리보기 + 인라인 "Always allow this pattern") 추가. `evopi-ux-gap-analysis.md` §6(G6 신설)+§8
+  (결론 재번호), `UXP-evopi-ux-proposal.md` 제안 4, `uxp-prototype.html` 4번째 화면까지 반영. 근거는 비교 대상
+  툴 실측이 아니라 evopi 자체 코드 내 불일치(`permission-gate.ts:851-854` vs `ipython-cell.ts:677-717`).
+  상세는 DECISIONS.md 「UXP Phase 확장 — CLI 상호작용 UX (G6) 추가」.
+- git 커밋/푸시는 이번 확장에서도 여전히 제외 — 전체가 미커밋 상태로 대기 중.

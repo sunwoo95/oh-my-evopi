@@ -998,3 +998,49 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   수정 `daemon-worker-env.ts` `workerBaseEnv()`: 클라이언트 launch env 가 있으면 supervisor env 의 `EVOPI_*`(단 `EVOPI_INTERNAL_*` 제외)를 제거한 뒤 오버레이 → 각 실행이 자기 env 그대로. 레거시(launch env 없는) 클라이언트는 기존 동작.
 - **스코어카드**: `eval/self-eval/0.12.0.json`(4898/1 — `4685-daemon-client-modes` 는 단독 재실행 19/19 통과, 부하 flaky), `eval/self-eval/0.12.1.json`(tsgo 0 · biome 0 · vitest **4903 pass / 0 fail**, 번들 14,826,675 B(+127 KB), S2 19/5/8/10, 시작 374–393 ms, F3 0).
 - **관찰(후속)**: print/daemon 경로에서 `ctx.hasUI` 가 true 라 strict/hazard 차단이 "Blocked by user"(denied-by-user) 로 기록됨; `4603-worker-recovery`·`4685-daemon-client-modes` 는 부하 시 flaky.
+
+### UXP Phase 시작 — 인기 OSS 코딩 에이전트 비교 확장 + UX 격차 분석 + UXP 제작 (2026-09-07, 사용자 지시)
+
+- **트리거**: 사용자 "evopi 분석 + claude code/codex 등 인기 코딩 어시스턴트 툴 추가 분석 → 부족한 점 파악 →
+  UXP(UX 제안서+프로토타입) 개발". "gitrepo 상위" = 워크스페이스 상위 디렉터리에서 발견한 실물 설치를 의미했고,
+  이후 "GitHub 스타 많이 받은 OSS 툴" 로 재확인. Cursor/Aider/Cline/Windsurf 는 사용자 지시로 명시 제외.
+- **입력**: `docs/analysis/harness-comparison.md`(기존 4자 비교), `docs/design/NEXT-STEPS.md`(트랙 A/D 후속),
+  신규 실측 대상 `/opt/workspace/local/sw4kim/opencode/`(opencode + oh-my-openagent 커뮤니티 메타하네스 —
+  evopi 가 prime-agent 를 감싸는 것과 동일한 구조로 opencode 를 감쌈. 저장소 외부, 읽기만, 수정 금지).
+  Codex CLI 는 로컬에 설정만 있어(`/opt/workspace/local/.codex/config.toml.bak`) 공개 지식 기준으로 보강.
+- **적용 정책 [자동확정]**:
+  1. opencode/oh-my-openagent 는 **로컬 실측**(절대경로:라인 인용, "저장소 외부" 명시) — 원본 무수정.
+     Codex CLI 는 **공개 자료 기준(미검증)** 으로 별도 표시. Claude Code 는 기존 분석 재사용.
+  2. `opencode.json` 의 평문 Databricks API 키 등 비밀값은 어떤 산출물에도 원문 복사 금지 — `<redacted>`.
+  3. 분석은 아키텍처 재탕이 아니라 **UX 격차**로 좁혀 우선순위화 → UXP(문서+HTML 프로토타입) 로 귀결.
+  4. git 커밋/푸시는 이번 트리거에서 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+- **계획 파일**: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
+
+### UXP Phase 종료 — 산출물 완료 (2026-09-07)
+
+- **산출물**: `docs/analysis/opencode-oh-my-openagent-arch.md`(신규 실측, 228행), `docs/analysis/harness-comparison.md`
+  (4→6자 매트릭스로 갱신), `docs/analysis/evopi-ux-gap-analysis.md`(신규, G1-G5 + §0 배제 항목), `docs/design/
+  UXP-evopi-ux-proposal.md`(신규, 제안 1-3 + v2 백로그), `docs/design/uxp-prototype.html`(신규, 3화면 터미널 목업 —
+  /subagents·/model routing·/skills, 라이트/다크 토큰 대응).
+- **배제 기록**: 계획 초안의 "세션/멀티세션 관측성" 격차 후보는 실측 결과 evopi 가 opencode 보다 이미 견고
+  (herdr-agent-state.ts 빌트인 중복감지+재시도유예창)해 격차 목록에서 제외 — gap-analysis.md §0 에 근거와 함께
+  명시적으로 배제 기록.
+- **Artifact 발행 미완료 [폴백]**: 이 세션은 `ANTHROPIC_AUTH_TOKEN` 인증이라 claude.ai 로그인 기반 Artifact 발행이
+  거부됨("Unset ANTHROPIC_AUTH_TOKEN then /login"). 정적 HTML 프로토타입 파일은 `docs/design/uxp-prototype.html` 로
+  저장 완료 — 로컬에서 브라우저로 열거나, claude.ai 로그인 세션에서 재시도해 발행 가능. 코드 산출물 자체는 계획
+  step 6 요구사항(3화면, 터미널 목업, 라이트/다크 토큰, 근거 인용 인라인)을 충족.
+### UXP Phase 확장 — CLI 상호작용 UX (G6) 추가 (2026-09-07, 사용자 지시)
+
+- **트리거**: 사용자 "cli상에 UX 개선도 포함시켜" — 기존 UXP(G1-G5) 는 전부 설정 표면(파일/뷰) 격차였고,
+  CLI 실행 **중** 상호작용(승인 프롬프트 등)은 다루지 않았다는 지적.
+- **적용 정책 [자동확정]**: 비교 대상 툴 실측 불필요 — evopi 자체 코드 내 능력-사용 불일치(diff 렌더러
+  `renderDiff` 는 있는데 승인 전 프롬프트엔 안 씀, `permission-gate.ts:851-854` vs `ipython-cell.ts:677-717`)
+  로 근거를 세운다. 새 gap ID `G6` 을 `evopi-ux-gap-analysis.md` §6 에 추가, 기존 G1-G5 ID 는 불변(하드코딩된
+  교차참조 보호), §7 결론은 §8 로 재번호.
+- **산출물 추가**: `docs/design/UXP-evopi-ux-proposal.md` 제안 4(G6 — diff 미리보기 + 인라인 "Always allow this
+  pattern", `ctx.ui.select` 옵션 배열 확장만으로 실행 가능, 새 컴포넌트 불필요), `docs/design/uxp-prototype.html`
+  4번째 화면(승인 프롬프트 전/후 비교 + diff 블록 + 3-옵션 다이얼로그 목업) 추가.
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 기존 정책 유지.
+
+- **git 커밋/푸시**: 이번 트리거에서 자동 인가되지 않음(§ 위 정책 4) — 사용자 확인 전까지 미실행, 체크포인트는
+  REVIEW.md 기록으로 대체.
