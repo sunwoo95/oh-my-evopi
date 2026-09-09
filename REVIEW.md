@@ -843,3 +843,36 @@ gh-pages `105e5a0`. 라이브 stable=v0.12.1, 격리 prefix `curl … install.sh
   누적 확인 후 스크래치 디렉터리 삭제.
 - `NEXT-STEPS.md:86` 후속 후보 행에서 "B3 커널 recall 로그" 제거, 완료 행으로 별도 추가.
 - git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음(CLAUDE.md 기본 정책) — 사용자 확인 후 진행.
+
+## [체크포인트] 2026-09-09 — Databricks 프로바이더: Claude 외 전 벤더 연결 지원
+사용자 지시: Databricks AI Gateway 모델 목록(~25개, GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen 등) 붙여넣고 워크스페이스
+URL+토큰 설정 시 Claude 계열만 선택 가능한 구조 재검토 요청 → "그렇게 진행해"로 실측 인가. 상세 트리거/실측 근거/정책은
+DECISIONS.md 「Databricks 프로바이더 — Claude 외 전 벤더 연결 지원」.
+
+- 실측으로 AI Gateway `/ai-gateway/openai/v1/*` 경로(전 벤더 8종에서 일관 404/501)를 폐기하고, 기존 discovery
+  (`GET /api/2.0/serving-endpoints`)가 이미 반환하는 generic `/serving-endpoints/{name}/invocations` 경로가
+  Claude/GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen 전 벤더에서 스트리밍 포함 동작함을 확인.
+- `packages/ai/src/types.ts`: `OpenAICompletionsCompat.invocationsPath?: boolean` 추가.
+- `packages/ai/src/providers/openai-completions.ts`: `detectCompat()`에 `isDatabricks` 자동감지 추가
+  (provider 또는 `.cloud.databricks.com` 포함), `getCompat()` 병합, `createClient()`에서 `invocationsPath`
+  일 때만 `/chat/completions` → `/invocations` 로 URL 재작성하는 `fetch` 옵션 주입 — 다른 프로바이더 무영향.
+- `packages/coding-agent/src/core/databricks-auth.ts`: `fetchDatabricksClaudeEndpoints` →
+  `fetchDatabricksServingEndpoints`(이름 필터 → `task==="llm/v1/chat"` 필터로 교체, 임베딩 3종 제외).
+  `DatabricksCachedModel.api` 필드 추가, 캐시 `version` 1→2(구버전 캐시 자동 재로그인 유도).
+  `databricksModelsFromCache`를 `api`로 분기 — Claude는 기존 anthropic-messages 경로 그대로, 비-Claude는
+  `openai-completions` + `{workspaceUrl}/serving-endpoints/{id}` baseUrl(재작성 fetch로 실제 `/invocations`
+  호출). 비-Claude 모델의 context/max-tokens/reasoning 은 실측치 없어 보수적 균일 placeholder로 명시.
+- `packages/coding-agent/src/modes/interactive/auth-flows.ts`: `runDatabricksLogin()` 호출부/문구 갱신.
+- `model-registry.ts`의 `OpenAICompletionsCompatSchema`에 `invocationsPath` 추가(비차단 nice-to-have).
+- 테스트: `packages/coding-agent/test/databricks-auth.test.ts` 확장(비-Claude 유지·임베딩 제외·`api` 필드
+  라운드트립·구버전 캐시 거부, 12/12 통과). 신규 `packages/ai/test/openai-completions-databricks-invocations.test.ts`
+  (fetch 재작성 3건, 65/65 전체 통과). `npx tsgo --noEmit` 클린.
+- 전체 스위트: `pi-ai`(unicode-surrogate 등 AWS Bedrock 실계정 필요 테스트가 작업 전/후 동일하게 실패 — git
+  stash 대조로 무관 확인), `pi-coding-agent`(4913/4988 통과, 나머지 2건은 데몬 워커 프로세스 타이밍 테스트로
+  주제상 무관 — stash 대조는 미실행이므로 "미확인"이지만 관련성 낮음).
+- **실측 스모크(라이브 워크스페이스, 사용자 제공 PAT 를 셸 환경변수로만 사용 후 즉시 unset)**: discovery 56개
+  chat-capable 엔드포인트, 그중 43개 비-Claude 모델 materialize, `databricks-gpt-5-6-sol`/`databricks-glm-5-3`/
+  `databricks-deepseek-v4-pro-0813` 3종에 `@evopi/pi-ai`의 `complete()`로 실제 요청 → 전부 `stopReason=stop`
+  + 정상 응답 텍스트 확인. 스크립트(`/tmp/databricks-smoke.ts`)는 검증 후 삭제, 토큰은 파일에 기록 안 됨.
+- **미해결**: 채팅에 평문으로 붙여넣어진 PAT 는 아직 회수/재발급 확인 안 됨 — 사용자에게 재차 권고 필요.
+- git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음(CLAUDE.md 기본 정책) — 사용자 확인 후 진행.

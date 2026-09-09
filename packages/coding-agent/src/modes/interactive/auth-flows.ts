@@ -6,7 +6,7 @@ import {
 	buildDatabricksModelCache,
 	DATABRICKS_PROVIDER_ID,
 	DATABRICKS_PROVIDER_NAME,
-	fetchDatabricksClaudeEndpoints,
+	fetchDatabricksServingEndpoints,
 	normalizeDatabricksWorkspaceUrl,
 } from "../../core/databricks-auth.js";
 import type { ModelRegistry } from "../../core/model-registry.js";
@@ -747,8 +747,9 @@ export class ProviderAuthFlows {
 
 	/**
 	 * Databricks login: BASE_URL + AUTH_TOKEN (Claude Code's ANTHROPIC_BASE_URL /
-	 * ANTHROPIC_AUTH_TOKEN contract), then discover Claude serving endpoints
-	 * directly from the workspace and register them as models.
+	 * ANTHROPIC_AUTH_TOKEN contract), then discover chat-capable serving endpoints
+	 * directly from the workspace and register them as models (Claude via
+	 * anthropic-messages, every other vendor via the generic /invocations route).
 	 */
 	async runDatabricksLogin(): Promise<AuthenticationResult> {
 		const dialog = new LoginDialogComponent(
@@ -793,8 +794,8 @@ export class ProviderAuthFlows {
 				throw new Error("Auth token cannot be empty.");
 			}
 
-			dialog.showProgress("Fetching Claude serving endpoints from Databricks...");
-			const endpoints = await fetchDatabricksClaudeEndpoints(workspace.workspaceUrl, token, {
+			dialog.showProgress("Fetching serving endpoints from Databricks...");
+			const endpoints = await fetchDatabricksServingEndpoints(workspace.workspaceUrl, token, {
 				signal: dialog.signal,
 			});
 			if (dialog.signal.aborted) {
@@ -803,8 +804,8 @@ export class ProviderAuthFlows {
 			}
 			if (endpoints.length === 0) {
 				throw new Error(
-					`No Claude serving endpoints found at ${workspace.workspaceUrl}. ` +
-						"Create an Anthropic model serving endpoint in Databricks, then retry.",
+					`No chat-capable serving endpoints found at ${workspace.workspaceUrl}. ` +
+						"Create a model serving endpoint in Databricks, then retry.",
 				);
 			}
 
@@ -812,7 +813,7 @@ export class ProviderAuthFlows {
 			this.host.modelRegistry.storeDatabricksModelCache(buildDatabricksModelCache(workspace, endpoints));
 
 			closeDialog();
-			const endpointSummary = `Found ${endpoints.length} Claude serving endpoint${endpoints.length === 1 ? "" : "s"} at ${workspace.workspaceUrl}`;
+			const endpointSummary = `Found ${endpoints.length} serving endpoint${endpoints.length === 1 ? "" : "s"} at ${workspace.workspaceUrl}`;
 			return await this.completeProviderAuthentication(
 				DATABRICKS_PROVIDER_ID,
 				DATABRICKS_PROVIDER_NAME,

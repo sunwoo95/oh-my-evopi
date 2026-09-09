@@ -560,11 +560,24 @@ function createClient(
 				}
 			: headers;
 
+	// Databricks Model Serving only accepts POST {baseURL}/invocations, not the
+	// SDK's hardcoded /chat/completions — rewrite just that suffix.
+	const fetchImpl = compat.invocationsPath
+		? (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+				const href = typeof url === "string" ? url : url.toString();
+				const rewritten = href.endsWith("/chat/completions")
+					? href.replace(/\/chat\/completions$/, "/invocations")
+					: href;
+				return fetch(rewritten, init);
+			}
+		: undefined;
+
 	return new OpenAI({
 		apiKey,
 		baseURL: isCloudflareProvider(model.provider) ? resolveCloudflareBaseUrl(model) : model.baseUrl,
 		dangerouslyAllowBrowser: true,
 		defaultHeaders,
+		...(fetchImpl ? { fetch: fetchImpl } : {}),
 	});
 }
 
@@ -1158,6 +1171,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 	const isCloudflareWorkersAI = provider === "cloudflare-workers-ai" || baseUrl.includes("api.cloudflare.com");
 	const isCloudflareAiGateway = provider === "cloudflare-ai-gateway" || baseUrl.includes("gateway.ai.cloudflare.com");
 	const isPrimeInference = provider === "prime-inference" || baseUrl.includes("api.pinference.ai");
+	const isDatabricks = provider === "databricks" || baseUrl.includes(".cloud.databricks.com");
 
 	const isNonStandard =
 		provider === "cerebras" ||
@@ -1172,9 +1186,11 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		baseUrl.includes("opencode.ai") ||
 		isCloudflareWorkersAI ||
 		isCloudflareAiGateway ||
-		isPrimeInference;
+		isPrimeInference ||
+		isDatabricks;
 
-	const useMaxTokens = baseUrl.includes("chutes.ai") || isMoonshot || isCloudflareAiGateway || isPrimeInference;
+	const useMaxTokens =
+		baseUrl.includes("chutes.ai") || isMoonshot || isCloudflareAiGateway || isPrimeInference || isDatabricks;
 
 	const isGrok = provider === "xai" || baseUrl.includes("api.x.ai");
 	const isDeepSeek = provider === "deepseek" || baseUrl.includes("deepseek.com");
@@ -1206,6 +1222,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		cacheControlFormat,
 		sendSessionAffinityHeaders: false,
 		supportsLongCacheRetention: !(isCloudflareWorkersAI || isCloudflareAiGateway),
+		invocationsPath: isDatabricks,
 	};
 }
 
@@ -1238,5 +1255,6 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		cacheControlFormat: model.compat.cacheControlFormat ?? detected.cacheControlFormat,
 		sendSessionAffinityHeaders: model.compat.sendSessionAffinityHeaders ?? detected.sendSessionAffinityHeaders,
 		supportsLongCacheRetention: model.compat.supportsLongCacheRetention ?? detected.supportsLongCacheRetention,
+		invocationsPath: model.compat.invocationsPath ?? detected.invocationsPath,
 	};
 }

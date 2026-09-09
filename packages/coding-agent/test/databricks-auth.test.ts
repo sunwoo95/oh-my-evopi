@@ -9,7 +9,7 @@ import {
 	DATABRICKS_PROVIDER_ID,
 	DATABRICKS_PROVIDER_NAME,
 	databricksModelsFromCache,
-	fetchDatabricksClaudeEndpoints,
+	fetchDatabricksServingEndpoints,
 	loadDatabricksModelCache,
 	normalizeDatabricksWorkspaceUrl,
 	saveDatabricksModelCache,
@@ -43,8 +43,8 @@ describe("normalizeDatabricksWorkspaceUrl", () => {
 	});
 });
 
-describe("fetchDatabricksClaudeEndpoints", () => {
-	it("queries the serving-endpoints API with bearer auth and filters to Claude endpoints", async () => {
+describe("fetchDatabricksServingEndpoints", () => {
+	it("queries the serving-endpoints API with bearer auth and keeps every llm/v1/chat endpoint, dropping embeddings", async () => {
 		let requestedUrl: string | undefined;
 		let authHeader: string | undefined;
 		const fetchFn = (async (url: unknown, init?: RequestInit) => {
@@ -54,8 +54,10 @@ describe("fetchDatabricksClaudeEndpoints", () => {
 				JSON.stringify({
 					endpoints: [
 						{ name: "databricks-claude-sonnet-5", state: { ready: "READY" }, task: "llm/v1/chat" },
+						{ name: "databricks-gpt-5-6-sol", state: { ready: "READY" }, task: "llm/v1/chat" },
 						{ name: "databricks-meta-llama-3-3-70b-instruct" },
-						{ name: "databricks-claude-opus-4-8" },
+						{ name: "databricks-gte-large-en", state: { ready: "READY" }, task: "llm/v1/embeddings" },
+						{ name: "databricks-claude-opus-4-8", state: { ready: "READY" }, task: "llm/v1/chat" },
 						{ notAName: true },
 					],
 				}),
@@ -63,12 +65,13 @@ describe("fetchDatabricksClaudeEndpoints", () => {
 			);
 		}) as typeof fetch;
 
-		const endpoints = await fetchDatabricksClaudeEndpoints(WORKSPACE, "dapi-test-token", { fetchFn });
+		const endpoints = await fetchDatabricksServingEndpoints(WORKSPACE, "dapi-test-token", { fetchFn });
 
 		expect(requestedUrl).toBe(`${WORKSPACE}/api/2.0/serving-endpoints`);
 		expect(authHeader).toBe("Bearer dapi-test-token");
 		expect(endpoints.map((endpoint) => endpoint.name)).toEqual([
 			"databricks-claude-sonnet-5",
+			"databricks-gpt-5-6-sol",
 			"databricks-claude-opus-4-8",
 		]);
 	});
@@ -76,7 +79,7 @@ describe("fetchDatabricksClaudeEndpoints", () => {
 	it("throws with status and a hint on auth failures", async () => {
 		const fetchFn = (async () => new Response("invalid token", { status: 403 })) as typeof fetch;
 
-		await expect(fetchDatabricksClaudeEndpoints(WORKSPACE, "bad", { fetchFn })).rejects.toThrow(
+		await expect(fetchDatabricksServingEndpoints(WORKSPACE, "bad", { fetchFn })).rejects.toThrow(
 			/HTTP 403.*access token/s,
 		);
 	});
@@ -85,7 +88,7 @@ describe("fetchDatabricksClaudeEndpoints", () => {
 describe("databricks model cache", () => {
 	const workspace = normalizeDatabricksWorkspaceUrl(WORKSPACE);
 
-	it("maps endpoints to anthropic-messages models with sensible defaults", () => {
+	it("maps Claude endpoints to anthropic-messages models with sensible defaults", () => {
 		const cache = buildDatabricksModelCache(workspace, [
 			{ name: "databricks-claude-sonnet-5" },
 			{ name: "databricks-claude-3-5-sonnet" },
@@ -106,14 +109,33 @@ describe("databricks model cache", () => {
 		expect(legacy!.maxTokens).toBe(8_192);
 	});
 
-	it("round-trips through the cache file and rejects corrupted content", () => {
+	it("maps non-Claude endpoints to openai-completions models pointed at the endpoint's own /invocations route", () => {
+		const cache = buildDatabricksModelCache(workspace, [{ name: "databricks-gpt-5-6-sol" }]);
+		const models = databricksModelsFromCache(cache);
+
+		expect(models).toHaveLength(1);
+		const [gpt] = models;
+		expect(gpt!.provider).toBe(DATABRICKS_PROVIDER_ID);
+		expect(gpt!.api).toBe("openai-completions");
+		expect(gpt!.baseUrl).toBe(`${WORKSPACE}/serving-endpoints/databricks-gpt-5-6-sol`);
+		expect(gpt!.input).toEqual(["text"]);
+		expect(gpt!.reasoning).toBe(false);
+	});
+
+	it("round-trips through the cache file and rejects corrupted or stale-version content", () => {
 		const dir = mkdtempSync(join(tmpdir(), "evopi-databricks-"));
 		try {
-			const cache = buildDatabricksModelCache(workspace, [{ name: "databricks-claude-haiku-4-5" }]);
+			const cache = buildDatabricksModelCache(workspace, [
+				{ name: "databricks-claude-haiku-4-5" },
+				{ name: "databricks-gpt-5-6-sol" },
+			]);
 			saveDatabricksModelCache(dir, cache);
 			expect(loadDatabricksModelCache(dir)).toEqual(cache);
 
 			writeFileSync(join(dir, DATABRICKS_MODELS_CACHE_FILE), "not json");
+			expect(loadDatabricksModelCache(dir)).toBeUndefined();
+
+			writeFileSync(join(dir, DATABRICKS_MODELS_CACHE_FILE), JSON.stringify({ ...cache, version: 1 }));
 			expect(loadDatabricksModelCache(dir)).toBeUndefined();
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

@@ -34,13 +34,14 @@ export type DatabricksServingEndpoint = {
 export type DatabricksCachedModel = {
 	id: string;
 	name: string;
+	api: "anthropic-messages" | "openai-completions";
 	reasoning: boolean;
 	contextWindow: number;
 	maxTokens: number;
 };
 
 export type DatabricksModelCache = {
-	version: 1;
+	version: 2;
 	workspaceUrl: string;
 	anthropicBaseUrl: string;
 	models: DatabricksCachedModel[];
@@ -82,15 +83,19 @@ export function normalizeDatabricksWorkspaceUrl(input: string): DatabricksWorksp
 	};
 }
 
-function isClaudeEndpoint(endpoint: DatabricksServingEndpoint): boolean {
-	return endpoint.name.toLowerCase().includes("claude");
+function isClaudeEndpointName(name: string): boolean {
+	return name.toLowerCase().includes("claude");
 }
 
 /**
- * List the workspace's Claude serving endpoints via the Databricks REST API.
- * The personal access token doubles as the inference AUTH_TOKEN.
+ * List the workspace's chat-capable serving endpoints via the Databricks REST API.
+ * The personal access token doubles as the inference AUTH_TOKEN. Every returned
+ * endpoint is reachable via the generic `/serving-endpoints/{name}/invocations`
+ * route regardless of vendor (Claude, GPT, Gemini, GLM, Grok, DeepSeek, Kimi, Qwen,
+ * ... — verified live across all of these); Claude endpoints additionally get an
+ * Anthropic-Messages-compatible route at `/serving-endpoints/anthropic`.
  */
-export async function fetchDatabricksClaudeEndpoints(
+export async function fetchDatabricksServingEndpoints(
 	workspaceUrl: string,
 	token: string,
 	options: { signal?: AbortSignal; fetchFn?: typeof fetch; timeoutMs?: number } = {},
@@ -128,7 +133,7 @@ export async function fetchDatabricksClaudeEndpoints(
 			state: entry.state?.ready,
 			task: entry.task,
 		}))
-		.filter(isClaudeEndpoint);
+		.filter((entry) => entry.task === "llm/v1/chat");
 }
 
 /** "databricks-claude-sonnet-5" -> "Claude Sonnet 5" */
@@ -143,16 +148,30 @@ function endpointDisplayName(endpointName: string): string {
 
 function cachedModelFromEndpoint(endpoint: DatabricksServingEndpoint): DatabricksCachedModel {
 	const name = endpoint.name.toLowerCase();
-	// Claude 3.x endpoints predate extended thinking and cap output at 8k;
-	// Claude 4+ endpoints support both. Endpoint metadata doesn't expose the
-	// underlying model limits, so infer from the conventional endpoint names.
-	const isLegacyClaude = /claude-(instant|2|3-(5|opus|sonnet|haiku))/.test(name);
+	if (isClaudeEndpointName(name)) {
+		// Claude 3.x endpoints predate extended thinking and cap output at 8k;
+		// Claude 4+ endpoints support both. Endpoint metadata doesn't expose the
+		// underlying model limits, so infer from the conventional endpoint names.
+		const isLegacyClaude = /claude-(instant|2|3-(5|opus|sonnet|haiku))/.test(name);
+		return {
+			id: endpoint.name,
+			name: endpointDisplayName(endpoint.name),
+			api: "anthropic-messages",
+			reasoning: !isLegacyClaude,
+			contextWindow: 200_000,
+			maxTokens: isLegacyClaude ? 8_192 : 32_000,
+		};
+	}
+	// Non-Claude vendors (GPT, Gemini, GLM, Grok, DeepSeek, Kimi, Qwen, ...): the
+	// endpoint-list API exposes no context-window/max-tokens/reasoning metadata, so
+	// these are conservative uniform floors, not per-vendor measured values.
 	return {
 		id: endpoint.name,
 		name: endpointDisplayName(endpoint.name),
-		reasoning: !isLegacyClaude,
-		contextWindow: 200_000,
-		maxTokens: isLegacyClaude ? 8_192 : 32_000,
+		api: "openai-completions",
+		reasoning: false,
+		contextWindow: 32_000,
+		maxTokens: 4_096,
 	};
 }
 
@@ -161,7 +180,7 @@ export function buildDatabricksModelCache(
 	endpoints: DatabricksServingEndpoint[],
 ): DatabricksModelCache {
 	return {
-		version: 1,
+		version: 2,
 		workspaceUrl: workspace.workspaceUrl,
 		anthropicBaseUrl: workspace.anthropicBaseUrl,
 		models: endpoints.map(cachedModelFromEndpoint),
@@ -169,11 +188,11 @@ export function buildDatabricksModelCache(
 	};
 }
 
-/** Materialize cached entries as anthropic-messages models for the registry. */
+/** Materialize cached entries as models for the registry: Claude via anthropic-messages, everything else via the generic /invocations route (openai-completions + compat.invocationsPath). */
 export function databricksModelsFromCache(cache: DatabricksModelCache): Model<Api>[] {
-	return cache.models.map(
-		(model) =>
-			({
+	return cache.models.map((model) => {
+		if (model.api === "anthropic-messages") {
+			return {
 				id: model.id,
 				name: model.name,
 				api: "anthropic-messages",
@@ -185,8 +204,22 @@ export function databricksModelsFromCache(cache: DatabricksModelCache): Model<Ap
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: model.contextWindow,
 				maxTokens: model.maxTokens,
-			}) as Model<Api>,
-	);
+			} as Model<Api>;
+		}
+		return {
+			id: model.id,
+			name: model.name,
+			api: "openai-completions",
+			provider: DATABRICKS_PROVIDER_ID,
+			baseUrl: `${cache.workspaceUrl}/serving-endpoints/${model.id}`,
+			reasoning: model.reasoning,
+			input: ["text"],
+			// Databricks bills through the workspace (DBUs/pay-per-token); no public per-token USD rate.
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: model.contextWindow,
+			maxTokens: model.maxTokens,
+		} as Model<Api>;
+	});
 }
 
 export function saveDatabricksModelCache(directory: string, cache: DatabricksModelCache): string {
@@ -205,7 +238,7 @@ export function loadDatabricksModelCache(directory: string): DatabricksModelCach
 	}
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8")) as DatabricksModelCache;
-		if (parsed?.version !== 1 || typeof parsed.anthropicBaseUrl !== "string" || !Array.isArray(parsed.models)) {
+		if (parsed?.version !== 2 || typeof parsed.anthropicBaseUrl !== "string" || !Array.isArray(parsed.models)) {
 			return undefined;
 		}
 		return parsed;

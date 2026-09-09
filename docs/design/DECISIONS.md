@@ -1065,3 +1065,46 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
      harness/recall 참조 전무 확인, 신규 통합 지점 아님 → 이번 범위 제외).
   6. 계획 파일: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
 - **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+
+### Databricks 프로바이더 — Claude 외 전 벤더 연결 지원 (2026-09-09, 사용자 지시)
+
+- **트리거**: 사용자가 Databricks AI Gateway 모델 목록(system.ai, ~25개, GPT/Gemini/GLM/Grok/DeepSeek/Kimi/
+  Qwen 등)을 붙여넣고, 워크스페이스 URL+토큰 설정 시 현재 Claude 계열만 선택 가능한 구조를 재검토해 전 모델
+  연결 가능성을 조사하라 지시 → "그렇게 진행해"로 실측 인가 → 실제 PAT 를 채팅에 붙여넣어 라이브 테스트 수행
+  (해당 PAT 는 평문 노출되었으므로 이 작업 검증 후 회수/재발급 권고 — 미완료).
+- **실측 결과(근거)**:
+  1. `/ai-gateway/openai/v1/responses`·`.../chat/completions`(system.ai.* qualified id) → 전 벤더 8종에서
+     일관되게 `404 NOT_FOUND`(세션 초반의 1회성 200 응답은 재현 불가로 폐기), bare name 은
+     `501 NOT_IMPLEMENTED: ... Use Unity Catalog model services (v3).` — 이 게이트 세대는 폐기.
+  2. `/api/2.1/unity-catalog/models` 는 동작하는 카탈로그(93건)이나 불필요 — 아래 3의 discovery 로 충분.
+  3. **실동작 확인**: `POST {workspaceUrl}/serving-endpoints/{endpoint-name}/invocations`, OpenAI
+     Chat-Completions 형식 바디, 8개 벤더(Claude/GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen)에서 스트리밍(SSE)
+     포함 확인. 기존 discovery `GET /api/2.0/serving-endpoints`(`databricks-auth.ts:93-`, 이름
+     `fetchDatabricksServingEndpoints`로 변경)가 이미 `task` 필드까지 반환 — 신규 discovery 불필요.
+  4. `x-databricks-use-coding-agent-mode: true` 헤더는 비-Claude 엔드포인트에도 무해(실측) → provider-wide
+     유지, `model-registry.ts` 변경 불필요.
+  5. **코드 장애물**: `openai` npm SDK 는 `{baseURL}/chat/completions` 로 고정 POST — Databricks 는
+     `/invocations` 만 허용(`404 ENDPOINT_NOT_FOUND: Path must be of form .../invocations ...`). SDK
+     생성자의 `fetch` 옵션(`node_modules/openai/client.d.ts` 확인)으로 URL 접미사만 재작성해 해결.
+- **적용 정책 [자동확정]**:
+  1. `packages/ai/src/types.ts` `OpenAICompletionsCompat.invocationsPath?: boolean` 추가.
+  2. `packages/ai/src/providers/openai-completions.ts`: `detectCompat()`에 `isDatabricks`(provider 체크
+     또는 `.cloud.databricks.com` 포함) 추가, `isNonStandard`/`useMaxTokens`에 합류(Prime Inference/
+     Cloudflare AI Gateway 와 동일 취급), `getCompat()` 병합, `createClient()`에서 `invocationsPath` 일 때만
+     `/chat/completions` → `/invocations` 재작성 `fetch` 주입(다른 프로바이더 무영향).
+  3. `packages/coding-agent/src/core/databricks-auth.ts`: discovery 필터를 이름 기반 Claude 필터에서
+     `task === "llm/v1/chat"` 로 교체(임베딩 3종 제외, 비-Claude 유지). `DatabricksCachedModel.api` 필드
+     추가, 캐시 `version` 1→2(구버전 캐시는 재로그인 강제). 비-Claude 모델은 보수적 균일 placeholder
+     (`reasoning:false, contextWindow:32_000, maxTokens:4_096`) — 벤더별 실측치 없음을 명시(근거 규칙),
+     추측 금지. `baseUrl: {workspaceUrl}/serving-endpoints/{id}` (SDK 의 `/chat/completions` 접미사 + 재작성
+     fetch 로 실제로는 `/invocations` 호출).
+  4. `auth-flows.ts` `runDatabricksLogin()` 호출부/문구를 Claude 전용→범용으로 갱신.
+  5. **범위 제외**: 벤더별 실제 context-window/max-tokens/reasoning 능력, 이미지 입력 지원 — Databricks
+     엔드포인트 목록 API 가 노출하지 않아 추측 불가. v2 이연.
+  6. 계획 파일: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
+- **검증**: `npm test -w @evopi/pi-coding-agent -- databricks-auth`(12/12 통과), `npm test -w @evopi/pi-ai --
+  openai-completions`(65/65 통과, 신규 `openai-completions-databricks-invocations.test.ts` 3건 포함),
+  `npx tsgo --noEmit`(루트, 클린). 전체 스위트: `pi-ai`(unicode-surrogate 등 AWS Bedrock 실계정 필요 테스트가
+  이 작업 전/후 동일하게 실패 — 무관 확인, git stash 로 대조), `pi-coding-agent`(4913/4988 통과, 나머지 2건은
+  데몬 워커 프로세스 타이밍 테스트로 무관 — stash 대조 없이는 "미확인"이나 주제상 무관).
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
