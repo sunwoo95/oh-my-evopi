@@ -825,4 +825,21 @@ gh-pages `105e5a0`. 라이브 stable=v0.12.1, 격리 prefix `curl … install.sh
   (결론 재번호), `UXP-evopi-ux-proposal.md` 제안 4, `uxp-prototype.html` 4번째 화면까지 반영. 근거는 비교 대상
   툴 실측이 아니라 evopi 자체 코드 내 불일치(`permission-gate.ts:851-854` vs `ipython-cell.ts:677-717`).
   상세는 DECISIONS.md 「UXP Phase 확장 — CLI 상호작용 UX (G6) 추가」.
-- git 커밋/푸시는 이번 확장에서도 여전히 제외 — 전체가 미커밋 상태로 대기 중.
+- git 커밋/푸시는 사용자 지시로 커밋 `6708d63`(main 에 push 완료, 011d1f4..6708d63)에 반영됨 — 위 UXP 산출물
+  7개 파일은 더 이상 미커밋 상태가 아니다(앞선 "전체가 미커밋 상태로 대기 중" 기록은 이 시점부로 정정).
+
+## [체크포인트] 2026-09-08 — B3 커널 recall() 관측 로그 구현
+사용자 지시: 백로그 중 "B3 recall 로그"(코드 작업, 키·호스트 불필요) 착수. `NEXT-STEPS.md:86` "후속 후보"의
+느슨한 라벨 항목 — 같은 문서의 이미 완료(M29)된 표 항목 B3(P5 트리거)와는 별개. 근거는 `DECISIONS.md:975-976`
+"커널 로그는 v2" 이연분. 상세 트리거/정책은 DECISIONS.md 「B3 Phase 시작」.
+- `evopi-runtime/src/rlm/harness.py`: `recall()`(:882-946) 이 매 유효 호출마다 sibling `recall_log.jsonl`
+  (harness_state.json 과 같은 디렉터리)에 쿼리(120자 truncate)·kind·limit·히트 목록(id/kind/path/score/
+  usage_count) 기록, 히트 0(미스)도 포함. 빈 쿼리/`limit<=0`/`kind` 검증 예외/`_local_write_error` 활성 상태는
+  로그하지 않음(`save()` 기존 가드와 대칭). `_RECALL_LOG_MAX_LINES=500` FIFO 캡으로 전역 스코프 무한증가 방지.
+  evo 게이트 없음(무조건 기록), 슬래시 커맨드·self-eval 연동 없음(파일 아티팩트로만 노출).
+- `evopi-runtime/test/test_harness.py`: `RecallLogTest` 7개 신규(정상 히트/미스/조기리턴 무로그/120자 truncate/
+  500줄 FIFO 캡/글로벌 스코프 분리/kind 예외 무로그) + 기존 recall 테스트 전부(52/52) 통과 확인.
+- 수동 스모크(`/tmp` 임시 세션): 히트 2건 + 미스 1건 호출 → `recall_log.jsonl` 3줄, 스키마·점수·usage_count
+  누적 확인 후 스크래치 디렉터리 삭제.
+- `NEXT-STEPS.md:86` 후속 후보 행에서 "B3 커널 recall 로그" 제거, 완료 행으로 별도 추가.
+- git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음(CLAUDE.md 기본 정책) — 사용자 확인 후 진행.

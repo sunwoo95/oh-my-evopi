@@ -1044,3 +1044,24 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
 
 - **git 커밋/푸시**: 이번 트리거에서 자동 인가되지 않음(§ 위 정책 4) — 사용자 확인 전까지 미실행, 체크포인트는
   REVIEW.md 기록으로 대체.
+
+### B3 Phase 시작 — 커널 recall() 관측 로그 (2026-09-08, 사용자 지시)
+
+- **트리거**: 사용자가 정리한 백로그 중 "B3 recall 로그"(둘 다 코드 작업, 키·호스트 불필요 항목) 착수 지시.
+  이 "B3"는 `NEXT-STEPS.md:76`의 **이미 완료(M29)된** 표 항목 B3(P5 성공-무경험 노트 트리거)와는 다른 항목 —
+  `NEXT-STEPS.md:86` "후속 후보" 행에 같은 라벨로 느슨하게 적힌 **별개의 미구현 항목**이다. 직접 근거는
+  `DECISIONS.md:975-976`(M29): "recall 관측 = 로컬+글로벌 harness_state.json usage_count 디스크 델타 +
+  ipython tool_call 스캔, 주입 가능한 recallTrace seam(**커널 로그는 v2**)." — v2 로 이연된 항목을 지금 구현한다.
+- **적용 정책 [자동확정]**:
+  1. `evopi-runtime/src/rlm/harness.py`의 `recall()`(:866-911) 내부에 sibling jsonl 로그
+     (`harness_state.json`과 같은 디렉터리, `recall_log.jsonl`)를 추가 — 쿼리 텍스트(120자 truncate)·kind·
+     limit·히트 목록(id/kind/path/score/usage_count)을 매 유효 호출마다 기록, 히트 0(미스)도 포함.
+  2. 조기 리턴(빈 쿼리/`limit<=0`)·`kind` 검증 예외·`_local_write_error` 활성 상태는 로그하지 않음 —
+     `save()`(harness.py:317-320)의 기존 가드와 대칭.
+  3. 전역 스코프의 무한 증가를 막기 위해 `_RECALL_LOG_MAX_LINES = 500` 캡(FIFO, 가장 오래된 줄 드롭) — v2 이연의
+     실질적 이유였던 "무한 증가" 우려를 해소.
+  4. evo 게이트 없음(무조건 기록) — `recall()` 자체가 evo 레이어 바깥의 커널 코어이므로 대칭.
+  5. 슬래시 커맨드·`overview()`·self-eval 연동 없음 — 파일 아티팩트로만 노출(기존 `self-eval.mjs`에
+     harness/recall 참조 전무 확인, 신규 통합 지점 아님 → 이번 범위 제외).
+  6. 계획 파일: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.

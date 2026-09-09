@@ -81,6 +81,7 @@ A3(오탐 완화, 무인 실행 마찰 제거) → C2(스코어카드 자동화)
 | D2 | **구현(경로 (b))** (M27) | agent.steer 미러링 + wrapper L2/L3/skip + abort 자동 재개; 상류 제안 `docs/design/upstream-proposals/prime-d2.md` 제출 대기(병렬 형제 skip 은 Stage 2 수용 시) |
 | E1 | **완료** (M31) | 슬라이드 22 신설, 리스크 카드 RESOLVED, 덱 43장 |
 | E2 | **완료** (M30) | 태그 경로 + dry_run + 가드 3종, build-binaries.yml 삭제, npm publish opt-in, `docs/release.md` |
+| B3(커널 로그) | **완료** (2026-09-08) | `harness.py:recall()` sibling `recall_log.jsonl`(쿼리+kind+limit+히트 id/score/usage_count, 히트 0 포함), `_RECALL_LOG_MAX_LINES=500` FIFO 캡, evo 게이트 없음. `DECISIONS.md:975-976` "커널 로그는 v2" 이연분 구현 |
 | C1 · B5 | 대기 | API 키 셸 export 확보 시 |
 | A1 | 대기 | userns 가용 호스트 확보 시 |
-| 후속 후보 | — | print/daemon 경로 `ctx.hasUI` 의미(strict 차단이 denied-by-user 로 기록), `rm -rf .` 통과 여부, D1 v2(pid startToken·branch 머지·데몬 rehydration), B3 커널 recall 로그, D4 shared.ts `checkpointSeq` |
+| 후속 후보 | — | print/daemon 경로 `ctx.hasUI` 의미(strict 차단이 denied-by-user 로 기록), `rm -rf .` 통과 여부, D1 v2(pid startToken·branch 머지·데몬 rehydration), D4 shared.ts `checkpointSeq` |

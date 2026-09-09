@@ -37,6 +37,11 @@ _PROGRESS_MARKERS: dict[str, str] = {"done": "[x]", "active": "[>]", "open": "[ 
 # recall(): Jaccard over lowercase word tokens; mirrors harness-select.ts.
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 _DEFAULT_RECALL_LIMIT = 3
+# recall() observability log (B3 kernel-side, next to harness_state.json). Capped
+# FIFO so the permanent global-scope directory doesn't grow without bound.
+_RECALL_LOG_FILE_NAME = "recall_log.jsonl"
+_RECALL_LOG_MAX_LINES = 500
+_RECALL_QUERY_TRUNCATE = 120
 
 
 def _tokens(text: str) -> set[str]:
@@ -50,6 +55,17 @@ def _jaccard(left: set[str], right: set[str]) -> float:
     if intersection == 0:
         return 0.0
     return intersection / (len(left) + len(right) - intersection)
+
+
+def _append_recall_log(log_path: Path, entry: dict[str, Any], max_lines: int = _RECALL_LOG_MAX_LINES) -> None:
+    """Append one recall() observation, keeping only the last ``max_lines`` (FIFO)."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = log_path.read_text(encoding="utf-8").splitlines() if log_path.exists() else []
+    except OSError:
+        existing = []
+    lines = [*existing, json.dumps(entry, ensure_ascii=False)][-max_lines:]
+    log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _progress_order(entry: "HarnessEntry") -> int:
@@ -898,16 +914,34 @@ class HarnessState:
                 similarity = _jaccard(query_tokens, _tokens(f"{entry.title} {entry.content} {entry.path}"))
                 if similarity > 0:
                     scored.append((similarity, entry))
-        if not scored:
-            return []
         scored.sort(key=lambda item: (-item[0], item[1].kind, item[1].path, item[1].id))
+        scored_by_id = {entry.id: similarity for similarity, entry in scored}
         hits = [entry for _, entry in scored[:limit]]
         for entry in hits:
             count = entry.metadata.get("usage_count")
             entry.metadata["usage_count"] = (count if isinstance(count, int) and not isinstance(count, bool) else 0) + 1
         # usage_count is bookkeeping, not an edit: version/updated_at stay untouched.
-        if self._local_write_error is None:
+        if hits and self._local_write_error is None:
             self.save()
+        if self._local_write_error is None and self.file_path is not None:
+            log_entry = {
+                "ts": _now(),
+                "scope": self.scope,
+                "kind": kind,
+                "query": query[:_RECALL_QUERY_TRUNCATE],
+                "limit": limit,
+                "hits": [
+                    {
+                        "id": entry.id,
+                        "kind": entry.kind,
+                        "path": entry.path,
+                        "score": round(scored_by_id[entry.id], 3),
+                        "usage_count": entry.metadata.get("usage_count"),
+                    }
+                    for entry in hits
+                ],
+            }
+            _append_recall_log(self.file_path.parent / _RECALL_LOG_FILE_NAME, log_entry)
         return hits
 
     def overview(self, *, max_entries_per_kind: int = 20, global_: bool = False, **kwargs: Any) -> str:

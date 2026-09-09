@@ -1123,5 +1123,110 @@ class RecallTest(unittest.TestCase):
             )
 
 
+class RecallLogTest(unittest.TestCase):
+    def _read_log(self, state: HarnessState) -> list[dict]:
+        log_path = state.file_path.parent / "recall_log.jsonl"
+        return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+    def test_recall_hit_writes_log_entry_next_to_state_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv")
+
+            state.recall("run pytest with uv venv", kind="memory", limit=2)
+
+            entries = self._read_log(state)
+            self.assertEqual(len(entries), 1)
+            entry = entries[0]
+            self.assertEqual(entry["scope"], "local")
+            self.assertEqual(entry["kind"], "memory")
+            self.assertEqual(entry["limit"], 2)
+            self.assertEqual(entry["query"], "run pytest with uv venv")
+            self.assertEqual(len(entry["hits"]), 1)
+            hit = entry["hits"][0]
+            self.assertEqual(hit["id"], "pytest_venv")
+            self.assertEqual(hit["kind"], "memory")
+            self.assertEqual(hit["usage_count"], 1)
+            self.assertGreater(hit["score"], 0)
+            self.assertIn("ts", entry)
+
+    def test_recall_miss_still_logs_with_empty_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv")
+
+            self.assertEqual(state.recall("completely unrelated words"), [])
+
+            entries = self._read_log(state)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["hits"], [])
+
+    def test_recall_degenerate_calls_do_not_write_a_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            state.create_memory("pytest venv", "use uv venv for pytest runs", id="pytest_venv")
+
+            self.assertEqual(state.recall(""), [])
+            self.assertEqual(state.recall("pytest venv", limit=0), [])
+
+            self.assertFalse((state.file_path.parent / "recall_log.jsonl").exists())
+
+    def test_recall_log_query_is_truncated_at_120_chars(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+            long_query = "pytest " * 40
+
+            state.recall(long_query)
+
+            entry = self._read_log(state)[0]
+            self.assertEqual(len(entry["query"]), 120)
+            self.assertEqual(entry["query"], long_query[:120])
+
+    def test_recall_log_caps_at_max_lines_and_drops_oldest(self) -> None:
+        from rlm.harness import _RECALL_LOG_MAX_LINES
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+
+            for i in range(_RECALL_LOG_MAX_LINES + 5):
+                state.recall(f"query number {i}")
+
+            entries = self._read_log(state)
+            self.assertEqual(len(entries), _RECALL_LOG_MAX_LINES)
+            self.assertEqual(entries[0]["query"], "query number 5")
+            self.assertEqual(entries[-1]["query"], f"query number {_RECALL_LOG_MAX_LINES + 4}")
+
+    def test_recall_global_writes_to_global_scope_log_not_local(self) -> None:
+        previous_global = os.environ.get("RLM_GLOBAL_HARNESS_STATE_DIR")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            global_dir = Path(temp_dir) / "global"
+            os.environ["RLM_GLOBAL_HARNESS_STATE_DIR"] = str(global_dir)
+            try:
+                state = HarnessState(Path(temp_dir) / "local" / "harness_state.json")
+                state.create_memory("Global lesson", "always pin the toolchain", id="pin_toolchain", global_=True)
+                state.recall("pin the toolchain", global_=True)
+            finally:
+                if previous_global is None:
+                    os.environ.pop("RLM_GLOBAL_HARNESS_STATE_DIR", None)
+                else:
+                    os.environ["RLM_GLOBAL_HARNESS_STATE_DIR"] = previous_global
+
+            self.assertTrue((global_dir / "recall_log.jsonl").exists())
+            self.assertFalse((state.file_path.parent / "recall_log.jsonl").exists())
+            global_entries = [
+                json.loads(line) for line in (global_dir / "recall_log.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(global_entries[0]["scope"], "global")
+
+    def test_recall_does_not_log_when_kind_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = HarnessState(Path(temp_dir) / "harness_state.json")
+
+            with self.assertRaisesRegex(ValueError, "unknown harness kind"):
+                state.recall("anything", kind="tool")
+
+            self.assertFalse((state.file_path.parent / "recall_log.jsonl").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
