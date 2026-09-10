@@ -1029,3 +1029,24 @@ reasoning-effort 무효화 수정"(코드 수정, `89cabe0`)이 v0.14.0에 이�
   동일 커맨드가 3회 재시도 후 400으로 실패했던 것과 대조 확인.
 - **교정된 습관**: 코드/캐시 수정을 완료 보고하기 전에 실제 실패 재현 커맨드로 라이브 검증을 먼저
   실행할 것 — 이번엔 파일 레벨 추론만으로 "fully fixed"를 주장했다가 사용자에게 반박당함.
+
+## [체크포인트] 2026-09-10 — `databricks-gpt-6-astra` 툴 사용 시 fail-fast
+
+"2번 진행 -> git 커밋&push&신규릴리즈 배포 이후 3번 조치 진행" 중 3번("astra에서 툴 콜이 동작하도록")을
+목표로 착수했으나, 라이브 재현으로 파라미터 조합(명시값/`"none"`/필드 완전 생략)을 전부 소진한 결과
+이 엔드포인트는 어떤 조합으로도 `/v1/chat/completions`(=`/invocations`)에서 툴을 허용하지 않고,
+`/v1/responses` 호환 경로도 존재하지 않음을 확정 — 즉 목표를 "동작하게" 가 아니라 "감지해서 명확히
+실패시키기"로 재정의. 상세 근거·정책·검증은 `docs/design/DECISIONS.md`("Databricks GPT 계열 —
+`databricks-gpt-6-astra` 툴 사용 시 fail-fast") 참조.
+
+- **구현**: `packages/ai/src/types.ts`(`OpenAICompletionsCompat.supportsFunctionTools`),
+  `packages/ai/src/providers/openai-completions.ts`(`detectCompat`/`getCompat`/`buildParams` 배선),
+  `packages/coding-agent/src/core/databricks-auth.ts`(`TOOLS_UNSUPPORTED_ENDPOINTS` 정확 매칭).
+- **검증**: 신규 단위 테스트 2건 포함 `openai-completions-databricks-invocations.test.ts` 13/13 통과,
+  `tsgo --noEmit` 클린, 빌드 클린, 라이브 스모크 3건(astra+툴 fail-fast / luna+툴 회귀 없음 /
+  astra+`--no-tools` 정상).
+- **전체 스위트 우려 해소**: `npm test -w @evopi/pi-ai`(전체)가 `24 failed`로 나와 회귀 여부를
+  `git stash` 후 클린 HEAD에서 동일 커맨드로 재확인 — 클린 HEAD도 동일하게 `24 failed`(차이는
+  신규 테스트 2건 뿐). 실패 11개 파일(`test/unicode-surrogate.test.ts` 등 Amazon Bedrock 관련)은
+  이번 변경과 무관한 기존 실패로 확정, 원인 자체는 미확인으로 별도 이슈 남김.
+- **git 커밋/푸시/릴리즈**: 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인 필요.

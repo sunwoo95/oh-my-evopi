@@ -329,6 +329,17 @@ export interface OpenAICompletionsCompat {
 	invocationsPath?: boolean;
 	/** Whether the backend rejects function tools unless `reasoning_effort` is explicitly set (Databricks GPT-family serving endpoints reject tool calls with no reasoning_effort at all). When true and the caller left reasoning unspecified, a request with tools defaults reasoning_effort to the model's "off" mapping (or "none"). Default: auto-detected from provider/URL. */
 	requiresReasoningEffortWithTools?: boolean;
+	/**
+	 * Whether this model can accept function tools at all. Set to false only for a
+	 * specific model confirmed (via live testing) to reject every combination of
+	 * reasoning_effort with tools — e.g. some Databricks GPT-family serving endpoints
+	 * (see databricks-gpt-6-astra) reject tools regardless of reasoning_effort being
+	 * "none", any other supported value, or omitted entirely. When false and the
+	 * request has tools attached, the request is rejected client-side before any
+	 * network call, with a clear error instead of the backend's confusing 400.
+	 * Default: true.
+	 */
+	supportsFunctionTools?: boolean;
 }
 
 /** Compatibility settings for OpenAI Responses APIs. */

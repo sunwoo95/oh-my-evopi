@@ -1249,3 +1249,67 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   구분되는 accent 색(청록)으로 렌더됨을 터미널 ANSI 출력으로 확인; 30폭(메타데이터 숨김 임계
   미달)에서는 크래시 없이 메타 영역 전체가 생략됨을 확인.
 - **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+
+### Databricks GPT 계열 — `databricks-gpt-6-astra` 툴 사용 시 fail-fast (2026-09-10, 사용자 지시 "3번 조치 진행")
+
+- **트리거**: "2번 진행 -> git 커밋&push&신규릴리즈 배포 이후 3번 조치 진행" 중 3번
+  ("`databricks-gpt-6-astra`에서 툴 콜이 동작하도록") — v0.14.1 배포(위 CLI UX 항목) 완료 후 착수.
+- **실측 결과(근거, 라이브 재현으로 파라미터 조합 전부 소진)**:
+  1. `reasoning_effort: "none"` + 툴 → 400: `"'reasoning_effort' does not support 'none' with this
+     model. Supported values are: 'low', 'medium', 'high', and 'xhigh'."` (위 항목에서 이미 확인됨,
+     `docs/design/DECISIONS.md:1167-1170`).
+  2. `reasoning_effort: "low"`(또는 다른 유효값) + 툴 → 400: `"Function tools with reasoning_effort
+     are not supported for gpt-6-astra in /v1/chat/completions. To use function tools, use
+     /v1/responses or set reasoning_effort to 'none'."`
+  3. `reasoning_effort` 필드를 요청 바디에서 완전히 생략(단순히 `undefined` 값이 아니라 키 자체 부재
+     — 디버그 로그로 `hasKey=false` 확인 후 라이브 전송) + 툴 → **2번과 동일한 400**. 이것이 마지막
+     남은 미검증 조합이었음 — 이로써 클라이언트 측에서 어떤 파라미터를 어떻게 조합해도 이 엔드포인트에서
+     툴을 쓸 방법이 없음을 확정.
+  4. Responses-API 형태 바디를 `/invocations`로 라우팅 시도 → `"Missing required Chat parameter:
+     'messages'"` — Databricks Model Serving의 generic 라우트는 Chat-Completions 형태만 받고,
+     실질적인 Responses-API 호환 엔드포인트가 없음(백엔드가 에러 메시지에서 안내하는 `/v1/responses`
+     경로 자체가 이 서빙 방식에는 존재하지 않음).
+  5. **결론**: 이것은 클라이언트 버그가 아니라 `databricks-gpt-6-astra` 서빙 엔드포인트 고유의, 클라이언트
+     측에서 수정 불가능한 백엔드/플랫폼 제약. 유일하게 타당한 대응은 이 조합을 감지해 네트워크 호출 전에
+     명확한 에러로 즉시 실패시키는 것.
+- **적용 정책 [자동확정]**:
+  1. `packages/ai/src/types.ts` `OpenAICompletionsCompat.supportsFunctionTools?: boolean`
+     (기본 `true`) 신설 — 기존 `requiresReasoningEffortWithTools` 오버라이드 패턴과 동일한 형태.
+  2. `packages/ai/src/providers/openai-completions.ts` `detectCompat()`/`getCompat()`에 배선(기본
+     `true`, `model.compat`으로 오버라이드 가능). `buildParams()`의 툴 첨부 분기 최상단에서
+     `compat.supportsFunctionTools === false`면 네트워크 호출 전에
+     `Error('Model "${model.id}" does not support function tools (confirmed via live testing
+     against this backend). Retry without tools, or use a different model.')`를 던짐 — 기존
+     `createClient()`의 동기 throw 관례를 재사용, 바깥 `streamOpenAICompletions`의 try/catch가
+     이를 `errorMessage` 가 채워진 정상 종료 스트림 이벤트로 변환(신규 에러 플러밍 불필요).
+  3. `packages/coding-agent/src/core/databricks-auth.ts`에 `TOOLS_UNSUPPORTED_ENDPOINTS =
+     new Set(["databricks-gpt-6-astra"])` 신설(정확한 엔드포인트 이름 매칭, GPT 계열 전체로
+     일반화하지 않음 — `gpt-5-6-luna`/`gpt-5-6-sol`은 별도로 라이브 검증되어 툴이 정상 동작하므로
+     근거 없는 일반화 회피). `databricksModelsFromCache()` 비-Claude 분기에서 이 집합에 속하면
+     `compat: { supportsFunctionTools: false }` 부여.
+  4. 온디스크 캐시 스키마(`DatabricksCachedModel`, `version: 2`)는 변경하지 않음 — 이 플래그는
+     캐시에서 `Model<Api>`로 메모리 내 materialize 하는 시점에만 적용되고 JSON 캐시 파일에는
+     저장되지 않음.
+- **검증**:
+  1. 단위 테스트 2건 신규(`packages/ai/test/openai-completions-databricks-invocations.test.ts`):
+     `supportsFunctionTools: false` 모델이 네트워크 호출 없이 `errorMessage`로 즉시 실패하는지,
+     오버라이드 없는 일반 Databricks 모델은 툴이 정상 첨부되는지(회귀 방지) — 13/13 통과.
+  2. `npx tsgo --noEmit`(루트, pre-commit 훅이 실행하는 것과 동일) 최초 실행 시 신규 필수 필드로 인한
+     3개 테스트 파일의 `compat` 리터럴 타입 오류 발견(`openai-completions-reasoning-replay.test.ts`,
+     `openai-completions-thinking-as-text.test.ts`, `openai-completions-tool-result-images.test.ts`
+     — 위 `requiresReasoningEffortWithTools` 도입 때와 동일한 카테고리의 회귀) → 각 파일에
+     `supportsFunctionTools: true` 추가 후 클린. `npm run build -w @evopi/pi-ai` 클린(매 빌드마다
+     `models.generated.ts`에 무관한 카탈로그 데이터가 재생성되는 것은 기존에 알려진 현상 —
+     `git checkout --`로 되돌림, 이번 수정과 무관).
+  3. **라이브 스모크(실 CLI, 실 Databricks 백엔드, 격리된 `--daemon-socket`으로 3회 종단 검증)**:
+     - astra + 툴(기본 툴셋) → 네트워크 호출 전에 fail-fast, 과거의 혼란스러운 400 대신 명확한
+       "does not support function tools" 에러로 즉시 종료 확인.
+     - luna + 툴 → 영향 없음, 기존과 동일하게 정상 동작(회귀 없음 확인).
+     - astra + `--no-tools` → 순수 채팅 모델로는 여전히 정상 동작 확인.
+  4. **전체 스위트 회귀 확인**: `npm test -w @evopi/pi-ai`(전체) 가 `24 failed | 418 passed | 702
+     skipped`로 나와 우려됐으나, `git stash`로 이번 변경분을 제거한 클린 HEAD에서 동일 커맨드를
+     재실행한 결과도 `24 failed | 416 passed | 702 skipped`(차이는 정확히 이번에 추가한 신규 테스트
+     2건) — 실패 11개 파일(`test/unicode-surrogate.test.ts` 등, Amazon Bedrock 관련) 전부 이번
+     변경과 무관하게 기존부터 존재하던 실패임을 확정. 원인은 미확인(라이브 네트워크/자격증명 필요
+     추정이나 미검증) — 별도 이슈로 남김, 이번 수정의 안전성 판단에는 영향 없음.
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.

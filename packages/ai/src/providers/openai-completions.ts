@@ -687,6 +687,15 @@ function buildParams(
 	}
 
 	if (context.tools && context.tools.length > 0) {
+		if (compat.supportsFunctionTools === false) {
+			// Confirmed via live testing that this model rejects function tools under
+			// every reasoning_effort configuration (explicit values, "none", and the
+			// field omitted entirely) — there is no request shape that makes this work,
+			// so fail fast client-side instead of sending a request that always 400s.
+			throw new Error(
+				`Model "${model.id}" does not support function tools (confirmed via live testing against this backend). Retry without tools, or use a different model.`,
+			);
+		}
 		params.tools = convertTools(context.tools, compat);
 		if (compat.zaiToolStream) {
 			(params as any).tool_stream = true;
@@ -1303,6 +1312,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		supportsLongCacheRetention: !(isCloudflareWorkersAI || isCloudflareAiGateway),
 		invocationsPath: isDatabricks,
 		requiresReasoningEffortWithTools: isDatabricks,
+		supportsFunctionTools: true,
 	};
 }
 
@@ -1338,5 +1348,6 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		invocationsPath: model.compat.invocationsPath ?? detected.invocationsPath,
 		requiresReasoningEffortWithTools:
 			model.compat.requiresReasoningEffortWithTools ?? detected.requiresReasoningEffortWithTools,
+		supportsFunctionTools: model.compat.supportsFunctionTools ?? detected.supportsFunctionTools,
 	};
 }

@@ -162,6 +162,28 @@ describe("openai-completions Databricks invocations rewrite", () => {
 		expect(params?.reasoning_effort).toBeUndefined();
 	});
 
+	it("rejects tools client-side for a model marked supportsFunctionTools: false, without making a network call", async () => {
+		// Regression: databricks-gpt-6-astra rejects function tools under every
+		// reasoning_effort configuration (explicit values, "none", and the field
+		// omitted entirely all 400) — the old blanket "force reasoning_effort to
+		// none" override actively broke this model instead of fixing it, since "none"
+		// isn't even a valid reasoning_effort value for it.
+		const model = createModel({ reasoning: true, compat: { supportsFunctionTools: false } });
+		const context: Context = {
+			systemPrompt: "sys",
+			messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			tools: [echoTool],
+		};
+		const result = await streamOpenAICompletions(model, context, { apiKey: "test-key" }).result();
+		expect(result.errorMessage).toMatch(/does not support function tools/);
+		expect(mockState.lastCreateParams).toBeUndefined();
+	});
+
+	it("still attaches tools normally for a Databricks model without the supportsFunctionTools override", async () => {
+		const params = await runRequestWithTool(createModel({ reasoning: true }));
+		expect(params?.tools?.length).toBe(1);
+	});
+
 	async function reshapeThroughFetch(model: Model<"openai-completions">, response: Response): Promise<Response> {
 		const options = await runRequest(model);
 		const fakeFetch = (async () => response) as typeof fetch;

@@ -178,6 +178,20 @@ function cachedModelFromEndpoint(endpoint: DatabricksServingEndpoint): Databrick
 	};
 }
 
+/**
+ * Endpoints confirmed (via live testing) to reject function tools under every
+ * reasoning_effort configuration — explicit values, "none", and the field omitted
+ * entirely all 400 with "Function tools with reasoning_effort are not supported
+ * for gpt-6-astra in /v1/chat/completions. To use function tools, use /v1/responses
+ * or set reasoning_effort to 'none'." — but "none" is itself rejected as an invalid
+ * enum value for this model ("Supported values are: 'low', 'medium', 'high', and
+ * 'xhigh'"), and Databricks' /invocations route does not accept a Responses-API-shaped
+ * body either (rejected with "Missing required Chat parameter: 'messages'").
+ * This is a per-endpoint fact, not a GPT-family generalization — do not add another
+ * endpoint here without separately live-testing it.
+ */
+const TOOLS_UNSUPPORTED_ENDPOINTS = new Set(["databricks-gpt-6-astra"]);
+
 export function buildDatabricksModelCache(
 	workspace: DatabricksWorkspace,
 	endpoints: DatabricksServingEndpoint[],
@@ -216,6 +230,7 @@ export function databricksModelsFromCache(cache: DatabricksModelCache): Model<Ap
 			provider: DATABRICKS_PROVIDER_ID,
 			baseUrl: `${cache.workspaceUrl}/serving-endpoints/${model.id}`,
 			reasoning: model.reasoning,
+			compat: TOOLS_UNSUPPORTED_ENDPOINTS.has(model.id) ? { supportsFunctionTools: false } : undefined,
 			input: ["text"],
 			// Databricks bills through the workspace (DBUs/pay-per-token); no public per-token USD rate.
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

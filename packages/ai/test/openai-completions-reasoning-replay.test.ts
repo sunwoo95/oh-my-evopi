@@ -31,6 +31,7 @@ const compat = {
 	supportsLongCacheRetention: true,
 	invocationsPath: false,
 	requiresReasoningEffortWithTools: false,
+	supportsFunctionTools: true,
 } satisfies Required<Omit<OpenAICompletionsCompat, "cacheControlFormat">> & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 };
