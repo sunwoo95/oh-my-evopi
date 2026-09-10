@@ -1050,3 +1050,13 @@ reasoning-effort 무효화 수정"(코드 수정, `89cabe0`)이 v0.14.0에 이�
   신규 테스트 2건 뿐). 실패 11개 파일(`test/unicode-surrogate.test.ts` 등 Amazon Bedrock 관련)은
   이번 변경과 무관한 기존 실패로 확정, 원인 자체는 미확인으로 별도 이슈 남김.
 - **git 커밋/푸시/릴리즈**: 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인 필요.
+
+### [배포완료] 2026-09-10 — v0.14.2 게시 (astra fail-fast 수정)
+
+사용자가 "커밋 & 푸시 & 릴리즈" 확인 → 커밋(`7950614`, pre-commit `tsgo --noEmit`가 신규 필수 필드로
+인한 3개 테스트 파일 리터럴 타입 오류를 잡아 즉시 수정 후 재커밋) → 푸시 → `npm run release:patch`
+(dry-run 먼저 확인) → v0.14.2 태그·커밋(`fc55f01`)·푸시 → GitHub Actions `Release` 워크플로
+(run `34452797905`) 성공(success) 확인 → `curl -fsSL https://sunwoo95.github.io/oh-my-evopi/stable`
+→ `v0.14.2`, `latest.json` → `"version":"v0.14.2"` 반영 확인(최초 조회 시 `v0.14.1`이 남아있었으나
+Pages 전파 지연으로 확인, 재조회로 해소).
+- **미해결(반복 권고)**: 채팅에 평문으로 붙여넣어진 Databricks PAT 는 여전히 회수/재발급 확인 안 됨.
