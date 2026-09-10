@@ -1002,3 +1002,30 @@ reasoning-effort 무효화 수정"(코드 수정, `89cabe0`)이 v0.14.0에 이�
   새 세션 시작(또는 daemon 재시작) 필요. git 커밋 대상 아님(런타임 상태 파일, 저장소 외부).
 - **미해결(반복 권고, 3회째)**: 채팅에 평문으로 붙여넣어진 Databricks PAT 는 여전히 회수/재발급
   확인 안 됨.
+
+## Databricks GPT 계열 400 에러 — 캐시 패치+데몬 재시작 후에도 재발, 근본 코드 결함 수정 (2026-09-10, 사용자 재확인)
+
+위 캐시 패치 및 데몬 재시작(`evopi shutdown --force`, 세션 0개 확인 후 진행) 완료를 사용자에게
+"fully fixed"로 보고했으나, 사용자가 "gpt family가 fully fiexd 되지 않은것 같은데" →
+"gpt-5.6-luna도 여전히 에러"로 반박. 캐시/데몬 재시작 이후에도 라이브 재현 시 동일 400이 재발함을
+직접 확인 — 스테일 캐시 진단은 사실이었으나 **원인의 일부**였을 뿐, 코드 레벨 결함이 별도로 남아있었음.
+
+- **근본 원인**: `packages/coding-agent/src/core/defaults.ts:3` `DEFAULT_THINKING_LEVEL = "medium"`이
+  `model.reasoning === true`인 모든 모델에 항상 적용되어, 실사용에서 `reasoningEffort`가 `undefined`인
+  경우가 거의 없음. 기존 수정(`89cabe0`, v0.14.0)의 분기는 정확히
+  `reasoningEffort undefined && reasoningEnabled undefined`일 때만 `reasoning_effort:"none"`을
+  주입했으므로, 실제로는 거의 실행되지 않는 죽은 코드였고 `"medium"`(또는 사용자가 명시한 값)이 그대로
+  전송돼 400 재발. 상세 근거: `docs/design/DECISIONS.md`의 신규 항목("Databricks GPT 계열 — 위 정책의
+  실사용 미작동 및 근본 수정") 참조.
+- **수정**: `packages/ai/src/providers/openai-completions.ts` `buildParams()`에 조건 없는 최우선 분기
+  신설 — `compat.requiresReasoningEffortWithTools && model.reasoning && compat.supportsReasoningEffort
+  && 툴 존재`이면 호출자가 무엇을 요청했든(미지정/명시값/디폴트값 불문) `reasoning_effort`를
+  `model.thinkingLevelMap?.off ?? "none"`으로 무조건 덮어씀. 옛(죽은) 분기 제거.
+- **검증**: 단위 테스트 갱신·추가(`openai-completions-databricks-invocations.test.ts`, `DEFAULT_THINKING_LEVEL`
+  재현용 회귀 테스트 포함, 73/73 통과) → `npx tsgo --noEmit` 클린 → `packages/ai`/`packages/coding-agent`
+  빌드 클린 → **라이브 스모크**: 04:58에 기동된 전역 설치 경로(`/root/.nvm/.../lib/node_modules/evopi`) 데몬을
+  `evopi status`로 세션 0개 확인 후 `--force` 종료 → 저장소 로컬 빌드로 재실행한
+  `evopi -p --model databricks-gpt-5-6-luna "hi"`가 200 OK("Hi. How can I help?") 정상 응답 — 이전엔
+  동일 커맨드가 3회 재시도 후 400으로 실패했던 것과 대조 확인.
+- **교정된 습관**: 코드/캐시 수정을 완료 보고하기 전에 실제 실패 재현 커맨드로 라이브 검증을 먼저
+  실행할 것 — 이번엔 파일 레벨 추론만으로 "fully fixed"를 주장했다가 사용자에게 반박당함.

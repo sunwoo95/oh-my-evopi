@@ -140,9 +140,19 @@ describe("openai-completions Databricks invocations rewrite", () => {
 		expect(params?.reasoning_effort).toBe("none");
 	});
 
-	it("lets an explicit reasoningEffort win over the tools-present default", async () => {
+	it("forces reasoning_effort to none even when an explicit effort was requested, since this backend rejects tools with any other value", async () => {
 		const params = await runRequestWithTool(createModel({ reasoning: true }), { reasoningEffort: "high" });
-		expect(params?.reasoning_effort).toBe("high");
+		expect(params?.reasoning_effort).toBe("none");
+	});
+
+	it("forces reasoning_effort to none for a caller-side default effort (e.g. DEFAULT_THINKING_LEVEL), not just an explicit user choice", async () => {
+		// Regression test: the caller layer applies a non-undefined default reasoning
+		// effort (DEFAULT_THINKING_LEVEL = "medium") whenever model.reasoning is true,
+		// so reasoningEffort is essentially never undefined in real usage. An earlier
+		// version of this fix only special-cased the undefined case and never actually
+		// engaged.
+		const params = await runRequestWithTool(createModel({ reasoning: true }), { reasoningEffort: "medium" });
+		expect(params?.reasoning_effort).toBe("none");
 	});
 
 	it("does not inject reasoning_effort for a non-Databricks reasoning model with tools attached", async () => {

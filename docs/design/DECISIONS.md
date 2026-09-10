@@ -1175,6 +1175,43 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
      구값 유지 — 정책 5번에서 명시한 대로 예상된 동작, 별도 조치 없음).
 - **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
 
+### Databricks GPT 계열 — 위 정책의 실사용 미작동 및 근본 수정 (2026-09-10, 사용자 재보고)
+
+- **트리거**: v0.14.0 배포 후 사용자가 동일 400 에러 재보고("여젼히 gpt family 모델에서는 다음과 같은 호출
+  에러가 발생해... 점검 진행하고 수정해") → 1차로 로컬 캐시(`/root/.evopi/agent/databricks-models.json`)의
+  스테일 `reasoning: false` 43건을 패치하고 데몬 재시작까지 했음에도 사용자가 "gpt family가 fully fiexd
+  되지 않은것 같은데"로 재차 반박 → 라이브 재현으로 캐시 문제가 아닌 코드 레벨 결함 확인.
+- **실측 결과(근거)**:
+  1. 캐시 패치 후 데몬 재시작까지 완료한 상태에서도 `databricks-gpt-5-6-luna` 툴 호출이 동일하게 400 —
+     스테일 캐시/데몬 메모리 문제가 아님을 확정.
+  2. `packages/coding-agent/src/core/defaults.ts:3` `DEFAULT_THINKING_LEVEL = "medium"` 이 `model.reasoning
+     === true`인 모델에는 호출부(`model-resolver.ts`/`sdk.ts`)에서 항상 주입됨 → 실사용에서
+     `options.reasoningEffort`가 `undefined`인 경우가 거의 없음.
+  3. 위 항목(2026-09-10, 사용자 지시)의 "적용 정책 2번"은 정확히
+     `reasoningEffort undefined && reasoningEnabled undefined` 조건에서만 `"none"`을 기본 주입했으므로,
+     실사용에서는 이 분기가 거의 실행되지 않고 캐치되지 않은 `reasoning_effort:"medium"`(또는 사용자가
+     명시한 값)이 그대로 전송되어 400 재발 — 즉 원 정책은 "effort 미지정 시의 기본값" 문제만 해결했고,
+     "이 백엔드는 툴 사용 시 effort 값 자체를 강제로 통제해야 한다"는 실제 제약을 반영하지 못함.
+- **적용 정책 [자동확정]** (위 정책 2번을 대체):
+  1. `openai-completions.ts` `buildParams()`의 해당 분기를 조건 없는 최우선 분기로 교체: `compat.
+     requiresReasoningEffortWithTools && model.reasoning && compat.supportsReasoningEffort && 툴 존재`이면
+     `reasoningEffort`/`reasoningEnabled`가 무엇이었는지(미지정/명시값/디폴트값 불문) 항상
+     `model.thinkingLevelMap?.off ?? "none"`으로 덮어씀. 이 백엔드에서는 툴+실제 reasoning을 동시에 쓸 방법이
+     없다는 것이 백엔드 자체 제약이므로, 호출자가 무엇을 요청했든 이 값이 최종값이어야 한다는 것이 근거.
+  2. 옛 분기(미지정 시에만 기본 주입)는 사실상 죽은 코드이므로 제거.
+- **검증**:
+  1. `packages/ai/test/openai-completions-databricks-invocations.test.ts`: 기존 "명시적 effort가
+     우선한다"(구 정책 인코딩) 테스트를 "명시값도 무조건 `none`으로 강제됨"으로 교체, `DEFAULT_THINKING_LEVEL`
+     재현용 회귀 테스트("medium" 기본값도 강제됨) 신규 추가. `npm test -w @evopi/pi-ai -- openai-completions`
+     73/73 통과.
+  2. `npx tsgo --noEmit`(루트) 클린. `packages/ai`, `packages/coding-agent` 둘 다 `npm run build` 클린.
+  3. **라이브 스모크**: 데몬(`pid 2129168`, 04:58 기동 — 이번 수정 빌드보다 이전, 전역 설치 경로
+     `/root/.nvm/.../lib/node_modules/evopi` 사용 확인)가 `evopi status`상 세션 0개로 확인 후
+     `evopi shutdown --force`로 정지(드롭되는 세션 없음). 이후 저장소 로컬 빌드
+     (`packages/coding-agent/dist/bundle/cli.js`) 로 `evopi -p --model databricks-gpt-5-6-luna "hi"` 재실행 →
+     "Hi. How can I help?" 200 OK 정상 응답 확인(과거엔 동일 커맨드가 3회 재시도 후 400 실패).
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+
 ### CLI UX — 버전 줄 인라인 업데이트 알림 (2026-09-10, 사용자 지시)
 
 - **트리거**: "evopi cli에 버전 옆에 새로운 릴리즈가 나왔다면 evopi update를 할 수 있도록

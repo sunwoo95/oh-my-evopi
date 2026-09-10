@@ -704,7 +704,23 @@ function buildParams(
 		params.tool_choice = options.toolChoice;
 	}
 
-	if (compat.thinkingFormat === "zai" && model.reasoning) {
+	if (
+		compat.requiresReasoningEffortWithTools &&
+		model.reasoning &&
+		compat.supportsReasoningEffort &&
+		(params.tools?.length ?? 0) > 0
+	) {
+		// Some backends (Databricks GPT-family serving endpoints) only accept function
+		// tools when reasoning_effort is exactly the model's "off" mapping — any other
+		// value, whether explicitly requested or applied as a caller-side default
+		// (e.g. DEFAULT_THINKING_LEVEL), 400s. This backend constraint overrides
+		// whatever effort the caller asked for; there is no supported way to combine
+		// tool use with actual reasoning on this backend today.
+		const offValue = model.thinkingLevelMap?.off;
+		if (offValue !== null) {
+			(params as any).reasoning_effort = offValue ?? "none";
+		}
+	} else if (compat.thinkingFormat === "zai" && model.reasoning) {
 		(params as any).enable_thinking = !!options?.reasoningEffort;
 	} else if (compat.thinkingFormat === "qwen" && model.reasoning) {
 		(params as any).enable_thinking = !!options?.reasoningEffort;
@@ -737,22 +753,6 @@ function buildParams(
 	} else if (options?.reasoningEffort && model.reasoning && compat.supportsReasoningEffort) {
 		(params as any).reasoning_effort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
 	} else if (options?.reasoningEnabled === false && model.reasoning && compat.supportsReasoningEffort) {
-		const offValue = model.thinkingLevelMap?.off;
-		if (offValue !== null) {
-			(params as any).reasoning_effort = offValue ?? "none";
-		}
-	} else if (
-		options?.reasoningEffort === undefined &&
-		options?.reasoningEnabled === undefined &&
-		model.reasoning &&
-		compat.supportsReasoningEffort &&
-		compat.requiresReasoningEffortWithTools &&
-		(params.tools?.length ?? 0) > 0
-	) {
-		// Some backends (Databricks GPT-family serving endpoints) reject function tools
-		// outright unless reasoning_effort is explicitly set, even when the caller never
-		// asked for reasoning at all. Default to the model's "off" mapping so a bare tool
-		// call doesn't 400 with no way for the caller to have known to ask.
 		const offValue = model.thinkingLevelMap?.off;
 		if (offValue !== null) {
 			(params as any).reasoning_effort = offValue ?? "none";
