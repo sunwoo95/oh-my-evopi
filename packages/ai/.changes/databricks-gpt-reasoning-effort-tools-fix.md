@@ -1,0 +1,1 @@
+- Fixed Databricks GPT-family models still 400ing on tool calls even after the v0.14.0 fix, because `DEFAULT_THINKING_LEVEL` meant `reasoningEffort` was almost never `undefined` in practice. `reasoning_effort` is now forced to the model's off-mapping whenever tools are attached, regardless of what effort was requested or defaulted.
