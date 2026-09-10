@@ -1,1 +1,0 @@
-- Fixed the confusing 400 when using tools with `databricks-gpt-6-astra`: this specific Databricks GPT endpoint rejects function tools under every `reasoning_effort` value (including omitted), confirmed via live testing, so it now fails fast with a clear message instead.

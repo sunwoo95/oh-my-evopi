@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.14.2] - 2026-09-10
+
+- Fixed the confusing 400 when using tools with `databricks-gpt-6-astra`: this specific Databricks GPT endpoint rejects function tools under every `reasoning_effort` value (including omitted), confirmed via live testing, so it now fails fast with a clear message instead.
+
 ## [0.12.1] - 2026-09-03
 
 - **Fixed EVOPI_* settings leaking between daemon clients.** Session workers were spawned as `{ ...supervisorEnv, ...clientEnv }`, so a knob set by the client that first launched the daemon (for example `EVOPI_APPROVAL=strict` or `EVOPI_EVO=on`) stayed in effect for every later client that did not set the key itself. Workers now start from the supervisor env with all client-scoped `EVOPI_*` knobs removed before the client's launch env is applied, so each run sees exactly its own environment (found by the 0.12.0 sandbox check).

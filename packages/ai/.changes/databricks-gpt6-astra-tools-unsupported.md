@@ -1,1 +1,0 @@
-- Added `OpenAICompletionsCompat.supportsFunctionTools` so a model confirmed to reject function tools under every `reasoning_effort` configuration fails fast client-side with a clear error, instead of sending a request that always 400s.

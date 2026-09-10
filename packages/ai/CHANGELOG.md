@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.14.2] - 2026-09-10
+
+- Added `OpenAICompletionsCompat.supportsFunctionTools` so a model confirmed to reject function tools under every `reasoning_effort` configuration fails fast client-side with a clear error, instead of sending a request that always 400s.
+
 ## [0.14.1] - 2026-09-10
 
 - Fixed Databricks GPT-family models still 400ing on tool calls even after the v0.14.0 fix, because `DEFAULT_THINKING_LEVEL` meant `reasoningEffort` was almost never `undefined` in practice. `reasoning_effort` is now forced to the model's off-mapping whenever tools are attached, regardless of what effort was requested or defaulted.
