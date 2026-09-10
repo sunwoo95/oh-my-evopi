@@ -876,3 +876,71 @@ DECISIONS.md 「Databricks 프로바이더 — Claude 외 전 벤더 연결 지�
   + 정상 응답 텍스트 확인. 스크립트(`/tmp/databricks-smoke.ts`)는 검증 후 삭제, 토큰은 파일에 기록 안 됨.
 - **미해결**: 채팅에 평문으로 붙여넣어진 PAT 는 아직 회수/재발급 확인 안 됨 — 사용자에게 재차 권고 필요.
 - git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음(CLAUDE.md 기본 정책) — 사용자 확인 후 진행.
+
+## [체크포인트] 2026-09-10 — Databricks GPT 계열 400 에러·reasoning-effort 무효화 수정
+사용자 지시: "databricks연결에 gpt계열 모델에서 400 에러가 나는 것과, effort 설정이 되지 않는 문제점 두 가지
+원인 파악해서 해결방안 제시해줘" → 라이브 재현으로 근본 원인 확정 → "개선 plan 작성" 지시로 계획 수립·승인·
+구현. 위 항목(2026-09-09)의 "벤더별 reasoning 능력 추측 불가 → v2 이연" 범위 제외의 후속. 상세 트리거/실측
+근거/정책은 DECISIONS.md 「Databricks GPT 계열 — 400 에러 및 reasoning-effort 무효화 수정」.
+
+- 근본 원인: `databricks-auth.ts:172` 의 `reasoning: false` 하드코드 단일 지점이 두 문제(effort 선택 불가,
+  `reasoning_effort` 미전송으로 인한 400)를 동시에 유발. 비-Claude 8개 벤더(GPT/Gemini/GLM/Grok/DeepSeek/
+  Kimi/Qwen) 전부 `reasoning_effort` 파라미터를 실제로 지원함을 라이브 재현으로 확인 후 `reasoning: true`
+  로 수정.
+- `packages/ai/src/types.ts`: `OpenAICompletionsCompat.requiresReasoningEffortWithTools?: boolean` 신설.
+  `openai-completions.ts`의 `detectCompat()`/`getCompat()`에 연동, `buildParams()`에 신규 분기 추가 —
+  effort 미지정 + 툴 존재 + Databricks 인 경우 `reasoning_effort: "none"` 기본 주입(사용자 명시값은 항상 우선).
+- 같은 파일의 Databricks 전용 `fetchImpl`을 확장해 실패 응답 바디를 가로채 재구성: Databricks 고유
+  `{error_code, message}` 형태(openai SDK 가 파싱 못해 `"400 status code (no body)"`로 축약시키던 원인)를
+  SDK 가 기대하는 `{error:{message,code}}` 형태로 변환 — 이미 그 형태인 바디나 파싱 불가 바디는 원본 그대로
+  통과.
+- **명시적 미해결**: `databricks-gpt-6-astra` 류는 `/v1/chat/completions`(=`/invocations`) 경로에서 어떤
+  `reasoning_effort` 값으로도 툴 사용이 불가능한 백엔드 자체 한계(에러 메시지가 `/v1/responses` 사용을 지시
+  — 이 코드베이스에 미지원, 범위 밖). 이번 수정은 이 경우의 에러 메시지 가독성만 개선.
+- 테스트: `packages/ai/test/openai-completions-databricks-invocations.test.ts` 3건→10건 확장(기본 주입/명시값
+  우선/비-Databricks 미주입/에러 재구성 3종/성공 응답 무변경), `npm test -w @evopi/pi-ai -- openai-completions`
+  72/72 통과. `packages/coding-agent/test/databricks-auth.test.ts` 의 `reasoning` 단언을 `true` 로 갱신 후
+  12/12 통과. 신규 필수 필드로 인한 타입 오류 3개 테스트 파일 수정 후 `npx tsgo --noEmit` 클린. 양 패키지
+  `npm run build` 클린.
+- **실측 스모크(라이브 워크스페이스, `/root/.evopi/agent/auth.json` 의 PAT 를 셸 환경변수로만 사용 후 즉시
+  unset, 기존 캐시가 구값을 유지하므로 캐시 우회하고 `reasoning: true` 모델을 직접 구성해 빌드 산출물의
+  `streamOpenAICompletions` 직접 호출)**: 이번 라운드는 처음으로 GPT-5.6/6 계열 reasoning 모델을 스모크
+  테스트(2026-09-09 체크포인트는 `gpt-5-6-sol`/`glm-5-3`/`deepseek-v4-pro-0813` 등 비-reasoning-영향 모델만
+  다뤘음).
+  - `databricks-gpt-5-6-luna`: 툴 첨부 + effort 미지정 → 자동으로 `reasoning_effort:"none"` 주입되어
+    200 OK 정상 응답(`stopReason: "stop"`) — 문제(a) 해결 확인.
+  - `databricks-gpt-6-astra`: 동일 조건 → 예상대로 여전히 400 이나, 노출되는 `errorMessage`가 실제 Databricks
+    진단문("Unsupported value: 'reasoning_effort' does not support 'none' with this model. Supported
+    values are: 'low', 'medium', 'high', and 'xhigh'.")으로 바뀜(과거 "400 status code (no body)") —
+    에러 가독성 개선 확인.
+  - `getSupportedThinkingLevels`가 이 조합에서 `["off","minimal","low","medium","high"]`를 반환함을 확인
+    (기존 `["off"]` 고정 해소) — 문제(b) 해결 확인.
+- 기존 캐시 파일(`/root/.evopi/agent/databricks-models.json`)은 재로그인 전까지 구값(`reasoning: false`)을
+  유지 — 정책대로 예상된 동작이며 별도 조치하지 않음. 사용자가 실제 CLI에서 효과를 보려면 재로그인(재인증)
+  필요.
+- **미해결(반복 권고)**: 채팅에 평문으로 붙여넣어진 PAT 는 여전히 회수/재발급 확인 안 됨 — 재차 권고.
+- git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음(CLAUDE.md 기본 정책) — 사용자 확인 후 진행.
+
+## CLI UX — 버전 줄 인라인 업데이트 알림 (2026-09-10, 사용자 지시)
+
+evopi CLI 스플래시 헤더의 `version` 줄에 새 릴리즈 존재 여부를 인라인으로 표시하는 UI 개선.
+상세 트리거/정책/근거는 DECISIONS.md 「CLI UX — 버전 줄 인라인 업데이트 알림」.
+
+- 기존 버전 체크 로직(`version-check.ts`, `startup-notices.ts`)은 재사용, 신규 네트워크/비교 로직
+  없음 — 이미 계산된 `newVersion` 값을 헤더에 배선하는 작업.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`:
+  `BrandSplashHeaderOptions.getNewVersion` 신설, `BrandSplashHeader`에 `renderVersionLine()`
+  private 메서드 추가(폭 부족 시 suffix 생략), `InteractiveMode`에 `knownNewVersion` 필드와
+  `initialNewVersion` 옵션 추가, `newVersionPromise` 해석 시 `this.ui.requestRender()`로 헤더 재렌더.
+- `packages/coding-agent/src/modes/agents-view/agents-view-mode.ts`: `this.splash`와
+  agents-view에서 여는 `InteractiveMode` 생성 호출부 양쪽에 `persistentState.startupNotices?.newVersion`
+  배선.
+- 기존 두 개의 별도 업데이트 알림(agents-view 하단 줄, interactive-mode 채팅 1회 표시)은 이번
+  범위에서 제거하지 않고 유지(사용자 지시 없었음, 정보 손실 리스크 회피).
+- 테스트: `packages/coding-agent/test/interactive-mode-startup.test.ts` 3건 신규(인라인 표시 확인,
+  미지정 시 회귀 없음, 좁은 폭 크래시 없음) 포함 22/22 통과. `npx tsgo --noEmit` 클린. `npm run build` 클린.
+- 실측 스모크: 빌드 산출물로 `BrandSplashHeader.render(80)` 직접 호출 —
+  `"version  v0.13.0 → v0.14.0 (run /update)"`가 버전 번호(회색, `theme.fg("muted")`)와 구분되는
+  accent 색(`rgb(138,190,183)`, 청록)으로 렌더됨을 ANSI 출력으로 확인. `render(30)`(메타데이터 숨김
+  임계 미달)에서는 크래시 없이 메타 영역 전체가 생략됨을 확인.
+- git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음 — 사용자 확인 후 진행.

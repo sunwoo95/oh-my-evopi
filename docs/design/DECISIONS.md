@@ -1108,3 +1108,107 @@ PASS/실효 PARTIAL(휴면 백포트 dialect·auth-pool·mnemopi 3종 + 무판�
   이 작업 전/후 동일하게 실패 — 무관 확인, git stash 로 대조), `pi-coding-agent`(4913/4988 통과, 나머지 2건은
   데몬 워커 프로세스 타이밍 테스트로 무관 — stash 대조 없이는 "미확인"이나 주제상 무관).
 - **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+
+### Databricks GPT 계열 — 400 에러 및 reasoning-effort 무효화 수정 (2026-09-10, 사용자 지시)
+
+- **트리거**: 사용자가 "databricks연결에 gpt계열 모델에서 400 에러가 나는 것과, effort 설정이 되지 않는
+  문제점 두 가지 원인 파악해서 해결방안 제시해줘" 요청 → 라이브 재현으로 원인 확정 → "개선 plan 작성" 지시로
+  본 계획 수립. 위 항목(Databricks 전 벤더 연결 지원, 2026-09-09)의 "범위 제외" 5번 항목
+  (`reasoning: false` 균일 placeholder, "벤더별 실제 reasoning 능력 추측 불가 → v2 이연")의 v2 후속.
+- **실측 결과(근거)**:
+  1. `databricks-auth.ts:172`(`cachedModelFromEndpoint` 비-Claude 분기) `reasoning: false` 하드코드가
+     두 문제의 공통 원인: `models.ts:68` `if (!model.reasoning) return ["off"]` → effort 선택 불가(문제 b);
+     `openai-completions.ts:674` `... && model.reasoning && ...` → `reasoning_effort` 미전송(문제 a).
+  2. 실제 코딩 에이전트는 매 요청에 활성 툴셋(`ipython` 등)을 항상 첨부 — 툴 첨부 시 Databricks 백엔드가
+     명시적 `reasoning_effort` 를 요구함을 라이브 재현으로 확인:
+     `databricks-gpt-5-6-luna`: 툴+`reasoning_effort` 없음 → 400("...set reasoning_effort to 'none'");
+     툴+`reasoning_effort:"none"` → 200 OK.
+     `databricks-gpt-6-astra`: 툴+`reasoning_effort` 없음 → 400(동일 메시지); 툴+`"none"` → 400("does not
+     support 'none' ... Supported: low/medium/high/xhigh"); 즉 이 모델은 `/v1/chat/completions`(=`/invocations`)
+     경로에서 어떤 `reasoning_effort` 값으로도 툴 사용 불가 — 백엔드 자체 에러 메시지가 `/v1/responses` 사용을
+     지시하는 실제 백엔드 능력 한계(추측 아님, 이번 코드베이스에 `/v1/responses` 지원 전무 → 이번 범위에서
+     해결 불가, 에러 메시지 가독성만 개선).
+  3. `node_modules/openai/core/error.js` `APIError.generate`가 `errorResponse['error']` 서브필드만
+     보존 — Databricks 실제 400 바디는 `{"error_code":"...","message":"..."}` 형태로 `.error` 래퍼가 없어
+     `makeMessage`가 `"400 status code (no body)"` 로 축약. `openai-completions.ts:475` catch 시점엔 원본
+     바디가 이미 소실되어 사후 복구 불가 — SDK 가 파싱하기 전, 이미 존재하는 Databricks 전용
+     `fetchImpl`(`openai-completions.ts:565`, `/invocations` 경로 재작성용)에서 가로채야 함.
+- **적용 정책 [자동확정]**:
+  1. `databricks-auth.ts:172` `reasoning: false` → `reasoning: true` (비-Claude 전체, 실측 기반 — 더 이상
+     "추측"이 아님: GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen 8종 모두 `reasoning_effort` 파라미터 동작 확인).
+  2. `packages/ai/src/types.ts` `OpenAICompletionsCompat.requiresReasoningEffortWithTools?: boolean` 신설
+     (`invocationsPath` 와 별개 플래그 — URL 형태가 아닌 별개의 백엔드 제약). `detectCompat()`/`getCompat()`
+     에 `isDatabricks` 로 연동. `openai-completions.ts` `buildParams()`에 신규 분기: `reasoningEffort`/
+     `reasoningEnabled` 둘 다 미지정 + `model.reasoning` + `compat.supportsReasoningEffort` +
+     `compat.requiresReasoningEffortWithTools` + 툴 존재 시 `reasoning_effort: "none"` 기본 주입(사용자가
+     명시한 값은 항상 우선).
+  3. 동일 Databricks `fetchImpl` 확장: 실패 응답 바디가 `.error.message` 형태가 아니고 Databricks 고유
+     `{error_code, message}` 형태면 `{error:{message,code}}` 로 재구성해 SDK 에 전달(파싱 실패 시 원본 그대로
+     통과 — 재구성 로직 자체의 실패가 새로운 은폐를 만들지 않도록).
+  4. **미해결로 명시**: `gpt-6-astra` 류(=`/v1/responses` 필요 모델)의 툴 사용 불가는 이번 정책으로 해결되지
+     않음 — 에러 메시지 가독성 개선까지만. 벤더 단위 화이트/블랙리스트는 추측 근거 없어 생성하지 않음.
+  5. 캐시(`version: 2`, 필드는 동일)는 `reasoning` 값만 바뀌므로 스키마 마이그레이션 불필요하나, 기존
+     사용자 캐시는 재로그인 전까지 구값 유지 — 별도 무효화 로직 추가하지 않음(범위 외), 검증 시 재로그인
+     또는 캐시 우회로 확인.
+  6. 계획 파일: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
+- **검증**:
+  1. 단위 테스트: `packages/ai/test/openai-completions-databricks-invocations.test.ts` 신규 7건
+     (기존 3건 + 기본 주입/명시값 우선/비-Databricks 미주입/에러 재구성 4종 3건 + 성공 응답 무변경 1건) 포함
+     `npm test -w @evopi/pi-ai -- openai-completions` 72/72 통과. `packages/coding-agent/test/databricks-auth.test.ts`
+     `reasoning: false`→`true` 단언 갱신 후 12/12 통과. `npx tsgo --noEmit` 클린(신규 필수 필드로 인한 3개 테스트
+     파일의 `compat` 리터럴 타입 오류 수정 포함: `openai-completions-reasoning-replay.test.ts`,
+     `openai-completions-thinking-as-text.test.ts`, `openai-completions-tool-result-images.test.ts`).
+  2. 빌드: `packages/ai`, `packages/coding-agent` 둘 다 `npm run build` 클린.
+  3. **실측 스모크(라이브 워크스페이스, `/root/.evopi/agent/auth.json` 의 PAT 를 셸 환경변수로만 사용 후 즉시
+     unset, 캐시 우회하고 `reasoning: true` 모델 객체를 직접 구성해 `packages/ai` 빌드 산출물의
+     `streamOpenAICompletions` 직접 호출)**:
+     - `databricks-gpt-5-6-luna`: 툴 첨부 + effort 미지정 → `reasoning_effort:"none"` 자동 주입 →
+       `stopReason: "stop"` 200 OK 정상 응답(문제 a 해결 확인).
+     - `databricks-gpt-6-astra`: 동일 조건 → 여전히 400(예상대로, 미해결로 명시한 백엔드 한계) 이나 이제
+       `errorMessage`가 `"Unsupported value: 'reasoning_effort' does not support 'none' with this model.
+       Supported values are: 'low', 'medium', 'high', and 'xhigh'."` 로 실제 Databricks 진단 메시지가
+       그대로 노출됨(과거 `"400 status code (no body)"` 대비 — 문제 M3 해결 확인).
+     - `getSupportedThinkingLevels`: `reasoning: true` + `thinkingLevelMap` 미설정 조합에서
+       `["off","minimal","low","medium","high"]` 반환(기존 `["off"]` 고정 해소 — 문제 b 해결 확인, `xhigh`/`max`
+       는 `thinkingLevelMap` 명시 매핑 없이는 제외되는 기존 로직 그대로).
+  4. 기존 캐시 파일(`/root/.evopi/agent/databricks-models.json`)은 여전히 `reasoning: false`(재로그인 전까지
+     구값 유지 — 정책 5번에서 명시한 대로 예상된 동작, 별도 조치 없음).
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
+
+### CLI UX — 버전 줄 인라인 업데이트 알림 (2026-09-10, 사용자 지시)
+
+- **트리거**: "evopi cli에 버전 옆에 새로운 릴리즈가 나왔다면 evopi update를 할 수 있도록
+  업데이트 노티 주게 ui개선".
+- **근거**: 버전 체크/알림 로직은 이미 존재(`version-check.ts:checkForNewPiVersion`,
+  `startup-notices.ts:gatherStartupNotices`) — 신규 네트워크/비교 로직 불필요. 기존 노출 위치는
+  두 곳뿐이며 둘 다 "버전 표시 줄 자체"가 아님: `agents-view-mode.ts`
+  `renderStartupNotices()`(스플래시 헤더 아래 별도 줄), `interactive-mode.ts`
+  `showNewVersionNotification()`(새 세션 채팅창 1회 표시). "버전 옆"이라는 요청과 배치가 달라
+  인라인 표시가 실제로 미구현 상태였음을 확인.
+- **적용 정책 [자동확정]** (AskUserQuestion 2건으로 배치/스타일 확정, 나머지는 사용자 지시 범위 내
+  구현 세부사항이라 재확인 없이 진행):
+  1. 배치: `BrandSplashHeader.render()`의 `version` 메타 줄에 인라인
+     (`version  v0.13.0 → v0.14.0 (run /update)`).
+  2. 스타일: 기존 버전 번호는 `theme.fg("muted", ...)` 유지, `→ v{new} (run /update)` 는
+     `theme.fg("accent", ...)`로 구분.
+  3. 기존 두 알림(agents-view 하단 줄, interactive-mode 채팅 1회 표시)은 제거하지 않고 유지
+     — 인라인 표시는 dim/muted 라벨이라 눈에 덜 띄어 정보 손실 리스크 회피, 제거 요청 없었음.
+  4. 배선: `InteractiveMode`가 `agentsViewOwnsStartupNotices: true`로 열릴 때(agents-view에서
+     세션 진입하는 일반 경로) 자체 버전 재조회를 하지 않으므로, agents-view가 이미 계산한
+     `persistentState.startupNotices?.newVersion` 값을 새 옵션 `initialNewVersion`으로 스냅샷
+     전달. 세션 진입 이후 값이 갱신되지 않는 것은 기존 `combineAgentsViewStartupNotices` 와
+     동일한 best-effort 한계로 간주, 별도 보정 로직 추가하지 않음(범위 외).
+  5. 계획 파일: `/root/.claude/plans/sprightly-whistling-neumann.md` (승인됨).
+- **구현**: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  — `BrandSplashHeaderOptions.getNewVersion` 신설, `BrandSplashHeader.renderVersionLine()`
+  신규 private 메서드(폭 부족 시 suffix 생략, base는 항상 유지), `InteractiveMode` 필드
+  `knownNewVersion`/옵션 `initialNewVersion` 추가, `run()`의 `newVersionPromise` 해석 시
+  헤더 재렌더 트리거(`this.ui.requestRender()`). `packages/coding-agent/src/modes/agents-view/agents-view-mode.ts`
+  — `this.splash` 생성부와 `InteractiveMode` 생성 호출부 양쪽에 배선.
+- **검증**: `packages/coding-agent/test/interactive-mode-startup.test.ts` 3건 신규(인라인 표시,
+  미지정 시 회귀 없음, 좁은 폭에서 크래시 없음) 포함 22/22 통과. `npx tsgo --noEmit` 클린.
+  `npm run build` 클린. 실측 스모크: 빌드 산출물로 `BrandSplashHeader.render(80)`/`render(30)`
+  직접 호출 — 80폭에서 `"version  v0.13.0 → v0.14.0 (run /update)"` 가 버전 번호(회색)와
+  구분되는 accent 색(청록)으로 렌더됨을 터미널 ANSI 출력으로 확인; 30폭(메타데이터 숨김 임계
+  미달)에서는 크래시 없이 메타 영역 전체가 생략됨을 확인.
+- **git 커밋/푸시**: 이번 트리거에서도 자동 인가되지 않음 — 완료 후 사용자에게 별도 확인.
