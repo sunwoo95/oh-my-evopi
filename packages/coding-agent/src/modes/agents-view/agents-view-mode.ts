@@ -489,6 +489,7 @@ async function runAgentsViewLoop(
 				forceFullscreen: true,
 				// The agents view renders the global notices itself, so suppress them in-session.
 				agentsViewOwnsStartupNotices: true,
+				initialNewVersion: persistentState.startupNotices?.newVersion,
 				sessionDepth: opened.summary.rlmDepth,
 				sessionHasChildren: result.hasChildren,
 			});
@@ -842,6 +843,7 @@ export class AgentsViewMode implements Component, Focusable {
 						{ label: "depth", value: String(getAgentsViewDepth(root)) },
 					];
 				},
+				getNewVersion: () => this.persistentState.startupNotices?.newVersion,
 			},
 		);
 	}

@@ -450,6 +450,8 @@ export interface BrandSplashHeaderOptions {
 	getExtraMetadata?: () => readonly BrandSplashMetadataLine[];
 	getHideStartHint?: () => boolean;
 	getStartHint?: () => string;
+	/** A newer released version, if one is already known, shown inline on the version line. */
+	getNewVersion?: () => string | undefined;
 }
 
 export class BrandSplashHeader implements Component {
@@ -473,6 +475,18 @@ export class BrandSplashHeader implements Component {
 		// Render output is derived from current theme/session state.
 	}
 
+	private renderVersionLine(valueWidth: number): string {
+		const label = theme.fg("dim", "version".padEnd(this.labelWidth));
+		const base = truncateToWidth(`v${this.version}`, valueWidth);
+		const newVersion = this.options.getNewVersion?.();
+		if (!newVersion) {
+			return label + theme.fg("muted", base);
+		}
+		const remaining = Math.max(0, valueWidth - visibleWidth(base));
+		const suffix = truncateToWidth(` → v${newVersion} (run /update)`, remaining);
+		return label + theme.fg("muted", base) + theme.fg("accent", suffix);
+	}
+
 	render(width: number): string[] {
 		const safeWidth = Math.max(1, width);
 		const paddingX = safeWidth > 1 ? 1 : 0;
@@ -490,7 +504,7 @@ export class BrandSplashHeader implements Component {
 		const startHint = this.options.getStartHint?.() ?? "type to search sessions";
 		const metaLines = showMeta
 			? [
-					labelled("version", `v${this.version}`),
+					this.renderVersionLine(valueWidth),
 					labelled("model", this.getModelId() ?? "—"),
 					labelled("cwd", formatSplashCwd(this.getCwd())),
 					...extraMetadata.map((line) => labelled(line.label, line.value)),
@@ -885,6 +899,12 @@ export interface InteractiveModeOptions {
 	 * which also covers direct daemon attaches where the agents view was never shown.
 	 */
 	agentsViewOwnsStartupNotices?: boolean;
+	/**
+	 * A newer released version already discovered by the agents view (`persistentState.startupNotices`),
+	 * handed down since this session won't re-run its own version check when
+	 * `agentsViewOwnsStartupNotices` is true.
+	 */
+	initialNewVersion?: string;
 	/** Persisted RLM depth supplied by the daemon SessionSummary. */
 	sessionDepth?: number;
 	/** Whether the unified daemon/catalog projection had any direct children. */
@@ -1133,6 +1153,8 @@ export class InteractiveMode {
 
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
 
+	private knownNewVersion: string | undefined;
+
 	private getLocalSessionHost(): InteractiveModeLocalSessionHost {
 		if (!this.localSessionHost) {
 			throw new Error("Local session host is not available in connection-backed interactive mode");
@@ -1170,6 +1192,7 @@ export class InteractiveMode {
 			this.resetSideQuestion();
 		});
 		this.version = VERSION;
+		this.knownNewVersion = this.options.initialNewVersion;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 		this.ui.onCopy = (text) => {
@@ -1493,6 +1516,7 @@ export class InteractiveMode {
 					topPadding: true,
 					getHideStartHint: () => !this.isNewChat(),
 					getStartHint: () => this.startHint,
+					getNewVersion: () => this.knownNewVersion,
 				},
 			);
 			this.headerContainer.addChild(this.builtInHeader);
@@ -1571,6 +1595,14 @@ export class InteractiveMode {
 		// rendered the agents view and still want the in-session fallback.)
 		const ownsGlobalStartupNotices = !this.options.agentsViewOwnsStartupNotices;
 		const newVersionPromise = ownsGlobalStartupNotices ? checkForNewPiVersion(this.version) : undefined;
+		void newVersionPromise
+			?.then((newVersion) => {
+				if (newVersion) {
+					this.knownNewVersion = newVersion;
+					this.ui.requestRender();
+				}
+			})
+			.catch(() => {});
 		const packageUpdatesPromise = ownsGlobalStartupNotices
 			? checkForPackageUpdates({
 					cwd: this.getCurrentCwd(),

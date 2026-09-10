@@ -67,6 +67,61 @@ describe("InteractiveMode startup hints", () => {
 		expect(unpadded.render(120)[0]).not.toBe("");
 	});
 
+	it("shows an accent-colored update hint inline on the version line when a newer release is known", () => {
+		const header = new BrandSplashHeader(
+			"0.0.0",
+			() => "test-model",
+			() => "/tmp/project",
+			undefined,
+			{ topPadding: true, getNewVersion: () => "0.14.0" },
+		);
+
+		const lines = header.render(120);
+		const raw = lines.join("\n");
+		const output = stripAnsi(raw);
+
+		expect(output).toContain("version  v0.0.0 → v0.14.0 (run /update)");
+		// The suffix is colored distinctly from the plain version number, so it must
+		// introduce its own ANSI escape rather than reuse the muted run's.
+		expect(raw).not.toBe(output);
+		expect(raw.split(" → ")[1]).toMatch(/\x1b/);
+	});
+
+	it("keeps the plain version line when no newer release is known", () => {
+		const noGetter = new BrandSplashHeader(
+			"0.0.0",
+			() => "test-model",
+			() => "/tmp/project",
+			undefined,
+			{ topPadding: true },
+		);
+		expect(stripAnsi(noGetter.render(120).join("\n"))).toContain("version  v0.0.0");
+		expect(stripAnsi(noGetter.render(120).join("\n"))).not.toContain("run /update");
+
+		const undefinedVersion = new BrandSplashHeader(
+			"0.0.0",
+			() => "test-model",
+			() => "/tmp/project",
+			undefined,
+			{ topPadding: true, getNewVersion: () => undefined },
+		);
+		expect(stripAnsi(undefinedVersion.render(120).join("\n"))).not.toContain("run /update");
+	});
+
+	it("degrades gracefully when the terminal is too narrow to fit the update suffix", () => {
+		const header = new BrandSplashHeader(
+			"0.0.0",
+			() => "test-model",
+			() => "/tmp/project",
+			undefined,
+			{ topPadding: true, getNewVersion: () => "0.14.0" },
+		);
+
+		expect(() => header.render(20)).not.toThrow();
+		const lines = header.render(20);
+		expect(lines.length).toBeGreaterThan(0);
+	});
+
 	it("randomly selects from five concise filepath prompts", () => {
 		expect(START_HINTS).toHaveLength(5);
 		expect(new Set(START_HINTS).size).toBe(5);
