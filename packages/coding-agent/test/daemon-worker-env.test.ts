@@ -11,11 +11,22 @@ describe("daemon worker env (client-scoped EVOPI_* knobs)", () => {
 		ANTHROPIC_API_KEY: "k",
 	};
 
-	it("classifies EVOPI_* as client-scoped except EVOPI_INTERNAL_*", () => {
+	it("classifies EVOPI_* as client-scoped except EVOPI_INTERNAL_* and the daemon-topology path vars", () => {
 		expect(isClientScopedEnvKey("EVOPI_APPROVAL")).toBe(true);
 		expect(isClientScopedEnvKey("EVOPI_API_KEY_POOL_OPENAI")).toBe(true);
 		expect(isClientScopedEnvKey("EVOPI_INTERNAL_DAEMON_CATALOG")).toBe(false);
 		expect(isClientScopedEnvKey("PATH")).toBe(false);
+		// Structural, not a per-session runtime knob: stripping these left a worker's
+		// self-healing replacement supervisor unable to find the real agent dir.
+		expect(isClientScopedEnvKey("EVOPI_CODING_AGENT_DIR")).toBe(false);
+		expect(isClientScopedEnvKey("EVOPI_SESSION_DIR")).toBe(false);
+		expect(isClientScopedEnvKey("EVOPI_CODING_AGENT_SESSION_DIR")).toBe(false);
+	});
+
+	it("keeps EVOPI_CODING_AGENT_DIR through workerBaseEnv even with a client launch env", () => {
+		const envWithAgentDir: NodeJS.ProcessEnv = { ...supervisorEnv, EVOPI_CODING_AGENT_DIR: "/tmp/real-agent-dir" };
+		const base = workerBaseEnv(envWithAgentDir, { PATH: "/usr/bin" });
+		expect(base.EVOPI_CODING_AGENT_DIR).toBe("/tmp/real-agent-dir");
 	});
 
 	it("drops the supervisor's EVOPI_* knobs when a client launch env is present", () => {
