@@ -944,3 +944,61 @@ evopi CLI 스플래시 헤더의 `version` 줄에 새 릴리즈 존재 여부를
   accent 색(`rgb(138,190,183)`, 청록)으로 렌더됨을 ANSI 출력으로 확인. `render(30)`(메타데이터 숨김
   임계 미달)에서는 크래시 없이 메타 영역 전체가 생략됨을 확인.
 - git 커밋/푸시는 이번 사이클에서도 자동 인가되지 않음 — 사용자 확인 후 진행.
+
+## Release v0.14.0 — commit/push/release (2026-09-10, 사용자 지시)
+
+사용자 지시("git commit&push 하고 release도 업데이터 반영해줘")로 CLAUDE.md 의 git 커밋/태그
+제외 규칙을 이번 요청 범위에서만 해제하고 실제 릴리즈를 수행함.
+
+- AskUserQuestion 확정: (1) 사전 존재하던 무관한 변경 2건(Issue A: 재생성된 모델 카탈로그 +
+  테스트 모델ID 리터럴 갱신, Issue B: daemon-worker-env 구조적 ENV 키 스트립 수정)도 이번
+  커밋/릴리즈에 포함(스태시하지 않음) — 릴리즈 스크립트가 클린 트리를 요구하고 두 변경 모두
+  완결되어 보였기 때문. (2) 버전 bump 는 **minor**(0.14.0) — Databricks reasoning 지원과 CLI
+  인라인 알림 두 기능급 추가가 포함되어 patch 보다 minor 가 적합.
+- 커밋 5건으로 분리(논리적 그룹, 순서대로): Databricks GPT-family 수정(`89cabe0`) →
+  CLI 버전 줄 인라인 알림(`881ca27`) → 문서(DECISIONS.md/REVIEW.md, `44d3bc1`) → Issue A
+  재생성 카탈로그+테스트(`439383e`) → Issue B daemon-worker-env(`7561391`). 매 커밋마다
+  husky pre-commit `npm run check` 통과 확인.
+- `git push origin main` 성공 확인(`a571586..7561391`).
+- `node scripts/release.mjs minor --dry-run` 으로 프리뷰(변경 없음, `.changes/*.md` 프래그먼트
+  없어 CHANGELOG 스킵 확인) 후 `npm run release:minor` 실행.
+- 릴리즈 스크립트 로그상 `npm version` 이 `@evopi/pi-ai` npm 레지스트리 404 로 exit 1 을 반환했으나,
+  이 저장소의 배포 채널은 GitHub Pages(`.github/workflows/release.yml`)이고 npm 레지스트리 공개는
+  대상이 아니므로(스크립트 자체가 "Warning: ... continuing"으로 무시하고 12개 package.json 모두
+  0.14.0 로 정상 반영됐음을 확인) 예상된 무해한 경고로 판단, 추가 조치 없음.
+- 커밋 `Release v0.14.0`(`e71f065`) 생성, 태그 `v0.14.0` 생성, `main` 및 태그 푸시 성공.
+- GitHub Actions `release.yml` 워크플로우(run id 34438139292) 완료 확인: `gh run list --workflow=release.yml
+  --limit 1 --json status,conclusion` → `{"conclusion":"success","status":"completed"}`(createdAt
+  04:41:16Z, updatedAt 04:42:28Z). `curl -fsSL https://sunwoo95.github.io/oh-my-evopi/stable` → `v0.14.0`,
+  `latest.json` → `"version":"v0.14.0"` 및 7개 서브패키지 tarball/SHA256 정상 반영 확인.
+- **미해결(반복 권고, 재차)**: 채팅에 평문으로 붙여넣어진 Databricks PAT 는 여전히 회수/재발급
+  확인 안 됨.
+
+## Databricks GPT 계열 400 에러 재발 — 스테일 캐시 패치 (2026-09-10, 사용자 재보고)
+
+사용자가 `databricks-gpt-5-6-luna`에서 여전히 동일 400("Function tools with reasoning_effort are
+not supported ... set reasoning_effort to 'none'")을 재현. 위 "Databricks GPT 계열 — 400 에러 및
+reasoning-effort 무효화 수정"(코드 수정, `89cabe0`)이 v0.14.0에 이미 포함돼 배포됐음에도 재발한
+원인을 확인.
+
+- **원인**: `docs/design/DECISIONS.md:1150-1152`(정책 5번)에서 이미 명시한 대로, 기존 로그인으로
+  생성된 로컬 캐시(`/root/.evopi/agent/databricks-models.json`)는 코드 수정과 무관하게 예전 값
+  `reasoning: false`를 그대로 유지 — 재로그인 전까지 구값 유지가 **의도된 동작**이었음.
+  `reasoning: false`인 채로는 `packages/ai/src/providers/openai-completions.ts:737`,`744-750`
+  두 분기 모두 `model.reasoning` 가드에 걸려 `reasoning_effort`가 전혀 전송되지 않고, 이는 코드
+  수정 이전과 동일한 400으로 이어짐(코드 버그 아님 — 캐시 신선도 문제).
+  실제 파일 확인: 패치 전 `databricks-gpt-5-6-luna` 항목 `"reasoning": false`(2026-09-09T07:23:47Z
+  캐시, 즉 코드 수정 전 로그인분).
+- **조치**: 재로그인(대화형 `/login` → Databricks, 실제 토큰 필요) 대신, 이미 캐시에 있는 endpoint
+  목록은 변경이 없고 `reasoning` 필드만 바뀌었으므로 캐시 파일을 직접 패치 — `cachedModelFromEndpoint`
+  (`packages/coding-agent/src/core/databricks-auth.ts:171-178`)의 수정된 로직과 동일한 결과를
+  만드는 스크립트로 `api === "openai-completions"` 항목 전부 `reasoning: false` → `true` 로 변경
+  (43건, Claude 항목은 이미 `true`라 무변경). 저장은 앱과 동일한 temp-write+rename 패턴 사용.
+- **한계(재확인, 코드 변경 아님)**: `databricks-gpt-6-astra`는 이 패치 후에도 툴 사용 시 400이
+  남는다 — `docs/design/DECISIONS.md:1126-1130`,`1148`에 이미 기록된 대로 이 모델은 백엔드가
+  `/v1/chat/completions`에서 어떤 `reasoning_effort` 값으로도 툴을 허용하지 않고 `/v1/responses`를
+  요구함(미지원 경로) — 범위 밖, 에러 메시지 가독성만 개선된 상태 유지.
+- 실행 중인 CLI 프로세스가 이미 구캐시를 메모리에 로드했다면 이번 파일 패치가 즉시 반영되지 않음 —
+  새 세션 시작(또는 daemon 재시작) 필요. git 커밋 대상 아님(런타임 상태 파일, 저장소 외부).
+- **미해결(반복 권고, 3회째)**: 채팅에 평문으로 붙여넣어진 Databricks PAT 는 여전히 회수/재발급
+  확인 안 됨.
