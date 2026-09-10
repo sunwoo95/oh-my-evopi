@@ -40,6 +40,7 @@ const compat = {
 	sendSessionAffinityHeaders: false,
 	supportsLongCacheRetention: true,
 	invocationsPath: false,
+	requiresReasoningEffortWithTools: false,
 } satisfies Required<Omit<OpenAICompletionsCompat, "cacheControlFormat">> & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 };

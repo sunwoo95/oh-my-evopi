@@ -327,6 +327,8 @@ export interface OpenAICompletionsCompat {
 	supportsLongCacheRetention?: boolean;
 	/** Whether to POST to `/invocations` instead of `/chat/completions` — the Databricks Model Serving REST convention. baseUrl must already end in `/serving-endpoints/{endpoint}`. Default: auto-detected from provider/URL. */
 	invocationsPath?: boolean;
+	/** Whether the backend rejects function tools unless `reasoning_effort` is explicitly set (Databricks GPT-family serving endpoints reject tool calls with no reasoning_effort at all). When true and the caller left reasoning unspecified, a request with tools defaults reasoning_effort to the model's "off" mapping (or "none"). Default: auto-detected from provider/URL. */
+	requiresReasoningEffortWithTools?: boolean;
 }
 
 /** Compatibility settings for OpenAI Responses APIs. */

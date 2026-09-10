@@ -38,6 +38,7 @@ const compat: Required<OpenAICompletionsCompat> = {
 	sendSessionAffinityHeaders: false,
 	supportsLongCacheRetention: true,
 	invocationsPath: false,
+	requiresReasoningEffortWithTools: false,
 };
 
 function buildToolResult(toolCallId: string, timestamp: number): ToolResultMessage {

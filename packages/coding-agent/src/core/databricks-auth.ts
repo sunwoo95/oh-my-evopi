@@ -163,13 +163,16 @@ function cachedModelFromEndpoint(endpoint: DatabricksServingEndpoint): Databrick
 		};
 	}
 	// Non-Claude vendors (GPT, Gemini, GLM, Grok, DeepSeek, Kimi, Qwen, ...): the
-	// endpoint-list API exposes no context-window/max-tokens/reasoning metadata, so
-	// these are conservative uniform floors, not per-vendor measured values.
+	// endpoint-list API exposes no context-window/max-tokens metadata, so those two
+	// stay conservative uniform floors. `reasoning: true` is not a floor guess though —
+	// live-tested across GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen serving endpoints, all
+	// accept `reasoning_effort`. GPT-family endpoints additionally *require* it once
+	// function tools are attached (see requiresReasoningEffortWithTools in openai-completions.ts).
 	return {
 		id: endpoint.name,
 		name: endpointDisplayName(endpoint.name),
 		api: "openai-completions",
-		reasoning: false,
+		reasoning: true,
 		contextWindow: 32_000,
 		maxTokens: 4_096,
 	};

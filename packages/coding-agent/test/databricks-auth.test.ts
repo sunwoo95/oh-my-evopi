@@ -119,7 +119,9 @@ describe("databricks model cache", () => {
 		expect(gpt!.api).toBe("openai-completions");
 		expect(gpt!.baseUrl).toBe(`${WORKSPACE}/serving-endpoints/databricks-gpt-5-6-sol`);
 		expect(gpt!.input).toEqual(["text"]);
-		expect(gpt!.reasoning).toBe(false);
+		// Live-tested across GPT/Gemini/GLM/Grok/DeepSeek/Kimi/Qwen serving endpoints:
+		// reasoning_effort is accepted (and required once tools are attached) by all of them.
+		expect(gpt!.reasoning).toBe(true);
 	});
 
 	it("round-trips through the cache file and rejects corrupted or stale-version content", () => {

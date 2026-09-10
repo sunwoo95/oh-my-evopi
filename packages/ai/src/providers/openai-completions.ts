@@ -509,6 +509,65 @@ export const streamSimpleOpenAICompletions: StreamFunction<"openai-completions",
 	} satisfies OpenAICompletionsOptions);
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Resolve a possibly-JSON-stringified nested error message down to a plain string,
+ * pulling a `.message`/`.error`/`.detail` field out of one level of nesting if present.
+ * Falls back to the raw string unchanged when it isn't JSON or has no such field.
+ */
+function resolveNestedErrorMessage(raw: string): string {
+	try {
+		const nested = JSON.parse(raw);
+		if (isRecord(nested)) {
+			const nestedMessage = nested.message ?? nested.error ?? nested.detail;
+			if (typeof nestedMessage === "string") return nestedMessage;
+		}
+	} catch {
+		// Not JSON — use the raw string as-is.
+	}
+	return raw;
+}
+
+/**
+ * Reshape a Databricks error response body into the `{ error: { message } }` shape the
+ * openai SDK expects, so its APIError carries the real diagnostic instead of collapsing to
+ * "<status> status code (no body)". A body already in that shape, or one that isn't JSON
+ * or doesn't match the known Databricks {error_code, message} shape, passes through
+ * unchanged — reshaping only ever adds information, never removes it.
+ */
+async function reshapeDatabricksErrorResponse(response: Response): Promise<Response> {
+	let bodyText: string;
+	try {
+		bodyText = await response.text();
+	} catch {
+		return response;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(bodyText);
+	} catch {
+		parsed = undefined;
+	}
+	if (
+		isRecord(parsed) &&
+		!(isRecord(parsed.error) && typeof parsed.error.message === "string") &&
+		typeof parsed.message === "string"
+	) {
+		const reshaped = {
+			error: { message: resolveNestedErrorMessage(parsed.message), code: parsed.error_code },
+		};
+		bodyText = JSON.stringify(reshaped);
+	}
+	return new Response(bodyText, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+}
+
 function createClient(
 	model: Model<"openai-completions">,
 	context: Context,
@@ -561,14 +620,18 @@ function createClient(
 			: headers;
 
 	// Databricks Model Serving only accepts POST {baseURL}/invocations, not the
-	// SDK's hardcoded /chat/completions — rewrite just that suffix.
+	// SDK's hardcoded /chat/completions — rewrite just that suffix. Also reshape error
+	// bodies: Databricks returns {"error_code","message"} with no `.error` wrapper, so
+	// the openai SDK's APIError.generate() (which only keeps `body.error`) collapses it
+	// to "400 status code (no body)" before any catch handler ever sees the real text.
 	const fetchImpl = compat.invocationsPath
-		? (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+		? async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
 				const href = typeof url === "string" ? url : url.toString();
 				const rewritten = href.endsWith("/chat/completions")
 					? href.replace(/\/chat\/completions$/, "/invocations")
 					: href;
-				return fetch(rewritten, init);
+				const response = await fetch(rewritten, init);
+				return response.ok ? response : reshapeDatabricksErrorResponse(response);
 			}
 		: undefined;
 
@@ -674,6 +737,22 @@ function buildParams(
 	} else if (options?.reasoningEffort && model.reasoning && compat.supportsReasoningEffort) {
 		(params as any).reasoning_effort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
 	} else if (options?.reasoningEnabled === false && model.reasoning && compat.supportsReasoningEffort) {
+		const offValue = model.thinkingLevelMap?.off;
+		if (offValue !== null) {
+			(params as any).reasoning_effort = offValue ?? "none";
+		}
+	} else if (
+		options?.reasoningEffort === undefined &&
+		options?.reasoningEnabled === undefined &&
+		model.reasoning &&
+		compat.supportsReasoningEffort &&
+		compat.requiresReasoningEffortWithTools &&
+		(params.tools?.length ?? 0) > 0
+	) {
+		// Some backends (Databricks GPT-family serving endpoints) reject function tools
+		// outright unless reasoning_effort is explicitly set, even when the caller never
+		// asked for reasoning at all. Default to the model's "off" mapping so a bare tool
+		// call doesn't 400 with no way for the caller to have known to ask.
 		const offValue = model.thinkingLevelMap?.off;
 		if (offValue !== null) {
 			(params as any).reasoning_effort = offValue ?? "none";
@@ -1223,6 +1302,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		sendSessionAffinityHeaders: false,
 		supportsLongCacheRetention: !(isCloudflareWorkersAI || isCloudflareAiGateway),
 		invocationsPath: isDatabricks,
+		requiresReasoningEffortWithTools: isDatabricks,
 	};
 }
 
@@ -1256,5 +1336,7 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		sendSessionAffinityHeaders: model.compat.sendSessionAffinityHeaders ?? detected.sendSessionAffinityHeaders,
 		supportsLongCacheRetention: model.compat.supportsLongCacheRetention ?? detected.supportsLongCacheRetention,
 		invocationsPath: model.compat.invocationsPath ?? detected.invocationsPath,
+		requiresReasoningEffortWithTools:
+			model.compat.requiresReasoningEffortWithTools ?? detected.requiresReasoningEffortWithTools,
 	};
 }
